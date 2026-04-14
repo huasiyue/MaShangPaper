@@ -1,0 +1,2 @@
+"""School and app configuration."""
+

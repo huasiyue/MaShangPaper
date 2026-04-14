@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <title>MaShangPaper Logo</title>
+  <desc>A highly symbolic logo representing the transformation from Markdown to formatted Academic Word Papers.</desc>
+
+  <defs>
+    <!-- Background Gradient: Modern Slate/Dark Mode -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+
+    <!-- Document Gradient: Clean Paper Surface -->
+    <linearGradient id="docGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+
+    <!-- Primary Brand Blue (Arco Design Blue to Deep Blue) -->
+    <linearGradient id="primary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#165DFF"/>
+      <stop offset="100%" stop-color="#0E42D2"/>
+    </linearGradient>
+
+    <!-- Magic Arrow Gradient (Tech/FastAPI pipeline) -->
+    <linearGradient id="magic" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#14C9C9"/>
+      <stop offset="100%" stop-color="#165DFF"/>
+    </linearGradient>
+
+    <!-- Academic Cap Gradient -->
+    <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2B579A"/>
+      <stop offset="100%" stop-color="#1D3870"/>
+    </linearGradient>
+
+    <!-- Drop Shadows -->
+    <filter id="docShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    
+    <filter id="capShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="4" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Base App Icon Plate -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+
+  <!-- Background Tech/API Nodes -->
+  <g stroke="#334155" stroke-width="2" fill="none">
+    <path d="M 80 250 L 100 320 L 144 340"/>
+    <path d="M 430 180 L 400 240 L 370 260"/>
+  </g>
+  <circle cx="80" cy="250" r="4" fill="#14C9C9"/>
+  <circle cx="100" cy="320" r="6" fill="#165DFF"/>
+  <circle cx="430" cy="180" r="5" fill="#FF9A2E"/>
+  <circle cx="400" cy="240" r="3" fill="#14C9C9"/>
+
+  <!-- ================= THE PAPER DOCUMENT ================= -->
+  <!-- Main Paper Body -->
+  <path d="M 160 100 H 310 L 380 170 V 424 A 16 16 0 0 1 364 440 H 160 A 16 16 0 0 1 144 424 V 116 A 16 16 0 0 1 160 100 Z" 
+        fill="url(#docGrad)" filter="url(#docShadow)"/>
+  
+  <!-- Top Right Folded Corner -->
+  <path d="M 310 100 V 154 A 16 16 0 0 0 326 170 H 380 Z" fill="#CBD5E1" opacity="0.8"/>
+
+  <!-- ================= STAGE 1: MARKDOWN INPUT ================= -->
+  <!-- Markdown Block Container -->
+  <rect x="180" y="140" width="160" height="70" rx="8" fill="#1E293B"/>
+  
+  <!-- Markdown Classic Logo (M + Down Arrow) inside the block -->
+  <g stroke="#22D3EE" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Letter M -->
+    <path d="M 232 185 V 165 L 244 177 L 256 165 V 185"/>
+    <!-- Down Arrow -->
+    <path d="M 276 165 V 185 M 268 177 L 276 185 L 284 177"/>
+  </g>
+
+  <!-- ================= THE PIPELINE / MAGIC ARROW ================= -->
+  <!-- Formatter / Transformer Arrow -->
+  <g stroke="url(#magic)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 260 226 L 260 256" stroke-width="8"/>
+    <path d="M 248 246 L 260 260 L 272 246" stroke-width="8" fill="none"/>
+  </g>
+  
+  <!-- Automation Magic Sparks -->
+  <path d="M 310 230 Q 310 240 320 240 Q 310 240 310 250 Q 310 240 300 240 Q 310 240 310 230 Z" fill="#F59E0B"/>
+  <path d="M 215 250 Q 215 256 221 256 Q 215 256 215 262 Q 215 256 209 256 Q 215 256 215 250 Z" fill="#14C9C9"/>
+
+  <!-- ================= STAGE 2: FORMATTED THESIS (WORD) ================= -->
+  <!-- Heading 1 (Mapped Style) -->
+  <rect x="210" y="295" width="100" height="12" rx="3" fill="url(#primary)"/>
+  
+  <!-- Author / Info -->
+  <rect x="235" y="315" width="50" height="6" rx="2" fill="#64748B"/>
+  
+  <!-- Abstract Label -->
+  <rect x="180" y="335" width="32" height="6" rx="2" fill="#475569"/>
+  
+  <!-- Justified Text Body (Paragraph format) -->
+  <rect x="180" y="347" width="160" height="6" rx="2" fill="#94A3B8"/>
+  <rect x="180" y="359" width="160" height="6" rx="2" fill="#94A3B8"/>
+  <rect x="180" y="371" width="130" height="6" rx="2" fill="#94A3B8"/>
+
+  <!-- Academic Standard Three-Line Table (三线表) -->
+  <g stroke="#475569" stroke-linecap="round">
+    <!-- Top thick line -->
+    <line x1="180" y1="392" x2="340" y2="392" stroke-width="2.5"/>
+    <!-- Middle thin line -->
+    <line x1="180" y1="398" x2="340" y2="398" stroke-width="1"/>
+    <!-- Bottom thick line -->
+    <line x1="180" y1="410" x2="340" y2="410" stroke-width="2.5"/>
+  </g>
+  <!-- Table data placeholders -->
+  <rect x="186" y="402" width="40" height="4" rx="1" fill="#CBD5E1"/>
+  <rect x="246" y="402" width="80" height="4" rx="1" fill="#CBD5E1"/>
+
+  <!-- ================= THE ACADEMIC IDENTITY ================= -->
+  <!-- Graduation Cap (Mortarboard) anchored on top-left of the document -->
+  <g filter="url(#capShadow)">
+    <!-- Cap Diamond / Board -->
+    <polygon points="140,60 220,95 140,130 60,95" fill="url(#primary)"/>
+    
+    <!-- Cap Skull Base -->
+    <path d="M 100 112.5 V 140 A 40 15 0 0 0 180 140 V 112.5 Z" fill="url(#capGrad)"/>
+    
+    <!-- Tassel String and Loop -->
+    <path d="M 140 95 Q 200 100 230 145" stroke="#FF9A2E" stroke-width="3" fill="none"/>
+    <circle cx="230" cy="145" r="4.5" fill="#FF9A2E"/>
+    <polygon points="230,145 224,170 236,170" fill="#FF9A2E"/>
+    
+    <!-- Top Button -->
+    <circle cx="140" cy="95" r="5" fill="#0E42D2"/>
+  </g>
+
+</svg>

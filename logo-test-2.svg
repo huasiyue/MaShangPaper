@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <!-- 纸张质感渐变 -->
+    <linearGradient id="docGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+
+    <!-- M字 科技渐变 (青色过渡到 Arco蓝) -->
+    <linearGradient id="mGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14C9C9"/>
+      <stop offset="100%" stop-color="#165DFF"/>
+    </linearGradient>
+
+    <!-- 博士帽渐变 -->
+    <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- 柔和的透明阴影，适配各类背景 -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- 1. 论文底板 (带有自适应阴影) -->
+  <path d="M 45,25 H 135 L 165,55 V 165 A 10,10 0 0 1 155,175 H 45 A 10,10 0 0 1 35,165 V 35 A 10,10 0 0 1 45,25 Z" 
+        fill="url(#docGrad)" stroke="#E2E8F0" stroke-width="1" filter="url(#shadow)"/>
+  
+  <!-- 论文右上角折角 -->
+  <path d="M 135,25 L 165,55 L 135,55 Z" fill="#CBD5E1"/>
+
+  <!-- 2. 中间大 "M" (代表 Markdown 与 MaShang) -->
+  <path d="M 65,105 V 65 L 100,92 L 135,65 V 105" 
+        fill="none" stroke="url(#mGrad)" stroke-width="12" 
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 3. 下方三线表 (代表 Formatter 格式化器) -->
+  <g stroke-linecap="round">
+    <line x1="65" y1="130" x2="135" y2="130" stroke="#334155" stroke-width="3.5"/>
+    <line x1="65" y1="140" x2="135" y2="140" stroke="#64748B" stroke-width="1.5"/>
+    <line x1="65" y1="150" x2="135" y2="150" stroke="#334155" stroke-width="3.5"/>
+  </g>
+  <!-- 三线表内的占位符色块 -->
+  <rect x="70" y="133.5" width="20" height="3" rx="1.5" fill="#94A3B8"/>
+  <rect x="100" y="133.5" width="25" height="3" rx="1.5" fill="#94A3B8"/>
+  <rect x="70" y="143.5" width="15" height="2.5" rx="1.2" fill="#CBD5E1"/>
+  <rect x="100" y="143.5" width="30" height="2.5" rx="1.2" fill="#CBD5E1"/>
+
+  <!-- 4. 左上角博士帽 (代表学术属性) -->
+  <g filter="url(#shadow)">
+    <path d="M 32,25 V 40 A 15,6 0 0 0 58,40 V 25 Z" fill="#172554"/>
+    <polygon points="45,5 78,18 45,31 12,18" fill="url(#capGrad)" stroke="#1E3A8A" stroke-width="1"/>
+    <circle cx="45" cy="18" r="3" fill="#0F172A"/>
+    <!-- 博士帽流苏 -->
+    <path d="M 45,18 Q 72,22 75,45" fill="none" stroke="#F59E0B" stroke-width="2"/>
+    <polygon points="75,46 71,56 79,56" fill="#F59E0B"/>
+  </g>
+</svg>

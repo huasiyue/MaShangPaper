@@ -1,0 +1,2 @@
+"""School-specific formatting config."""
+

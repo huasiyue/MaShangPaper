@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+backend/temp/*
+!backend/temp/.gitkeep
+
+frontend/node_modules/
+frontend/dist/
+
