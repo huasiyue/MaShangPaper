@@ -338,6 +338,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str):
     # 解析 Markdown 内容
     lines = content.split('\n')
     in_code_block = False
+    code_buffer = []
     in_abstract = False
     in_references = False
     first_heading1 = True  # 标记是否是第一个一级标题（论文题目）
@@ -361,27 +362,25 @@ def convert_markdown_to_word(markdown_path: str, output_path: str):
         
         # 代码块处理
         if stripped.startswith('```'):
-            in_code_block = not in_code_block
             if not in_code_block:
-                # 代码块结束，添加代码内容
-                code_lines = []
-                i += 1
-                while i < len(lines) and not lines[i].strip().startswith('```'):
-                    code_lines.append(lines[i])
-                    i += 1
-                if code_lines:
+                # 代码块开始
+                in_code_block = True
+                code_buffer = []
+            else:
+                # 代码块结束，输出已收集的代码内容
+                in_code_block = False
+                if code_buffer:
                     para = doc.add_paragraph()
                     para.paragraph_format.left_indent = Cm(1)
-                    run = para.add_run('\n'.join(code_lines))
+                    run = para.add_run('\n'.join(code_buffer))
                     run.font.name = 'Courier New'
                     run.font.size = Pt(10)
-                i += 1
-                continue
-            else:
-                i += 1
-                continue
-        
+                    code_buffer = []
+            i += 1
+            continue
+
         if in_code_block:
+            code_buffer.append(line)
             i += 1
             continue
         
