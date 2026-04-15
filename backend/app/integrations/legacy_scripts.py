@@ -21,7 +21,9 @@ def _load_module(module_name: str, file_path: Path):
 
 @lru_cache(maxsize=1)
 def get_convert_module():
-    return _load_module("legacy_convert_to_word", DOCS_DATA_DIR / "convert_to_word.py")
+    """加载带公式支持的转换器（backend 版本）。"""
+    from app.core.settings import BACKEND_DIR
+    return _load_module("word_converter", BACKEND_DIR / "app" / "services" / "word_converter.py")
 
 
 @lru_cache(maxsize=1)

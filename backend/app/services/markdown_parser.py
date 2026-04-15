@@ -14,6 +14,7 @@ class BlockType(str, Enum):
     QUOTE = "quote"
     CODE = "code"
     REFERENCE = "reference"
+    EQUATION = "equation"
 
 
 @dataclass(slots=True)
@@ -53,6 +54,8 @@ def parse_markdown(content: str) -> DocumentModel:
     title: str | None = None
 
     in_code_block = False
+    in_math_block = False
+    math_buffer: list[str] = []
     table_buffer: list[str] = []
 
     def flush_table() -> None:
@@ -67,10 +70,23 @@ def parse_markdown(content: str) -> DocumentModel:
             )
             table_buffer = []
 
+    def flush_math() -> None:
+        nonlocal math_buffer
+        if math_buffer:
+            blocks.append(
+                DocumentBlock(
+                    block_type=BlockType.EQUATION,
+                    text="\n".join(math_buffer),
+                    lines=math_buffer[:],
+                )
+            )
+            math_buffer = []
+
     for raw_line in lines:
         line = raw_line.rstrip()
         stripped = line.strip()
 
+        # 代码块
         if stripped.startswith("```"):
             flush_table()
             in_code_block = not in_code_block
@@ -79,6 +95,31 @@ def parse_markdown(content: str) -> DocumentModel:
 
         if in_code_block:
             blocks.append(DocumentBlock(block_type=BlockType.CODE, text=line))
+            continue
+
+        # 数学公式块 $$...$$
+        if stripped.startswith("$$"):
+            flush_table()
+            # 单行公式：$$ E = mc^2 $$
+            if stripped.endswith("$$") and len(stripped) > 4 and not in_math_block:
+                blocks.append(
+                    DocumentBlock(
+                        block_type=BlockType.EQUATION,
+                        text=stripped[2:-2].strip(),
+                    )
+                )
+                continue
+            # 多行公式块开始/结束
+            if not in_math_block:
+                in_math_block = True
+                math_buffer = []
+            else:
+                in_math_block = False
+                flush_math()
+            continue
+
+        if in_math_block:
+            math_buffer.append(stripped)
             continue
 
         if not stripped:
