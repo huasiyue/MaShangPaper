@@ -13,7 +13,8 @@ from app.core.settings import DEFAULT_SCHOOL_ID, DEFAULT_THESIS_TYPE, SUPPORTED_
 from app.schemas.documents import ProjectAssetItem, ProjectImportResponse, ReviewResponse
 from app.services.assets import ASSET_URL_PATTERN, find_asset_path, store_asset_from_path
 from app.services.docx_generator import DocxGenerator, GenerationResult
-from app.services.formatters.yzu import YZUFormatter
+from app.services.formatters.base import BaseFormatter
+from app.services.formatters.schools import get_formatter_class
 
 
 def cleanup_paths(paths: list[Path]) -> None:
@@ -30,18 +31,14 @@ def cleanup_paths(paths: list[Path]) -> None:
 class DocumentPipeline:
     def __init__(self) -> None:
         self.generator = DocxGenerator()
-        self.formatter_registry = {
-            "yzu": YZUFormatter(),
-            "sdfmu_ai": YZUFormatter(),
-        }
 
     def _ensure_school_supported(self, school_id: str) -> None:
         if school_id not in SUPPORTED_SCHOOLS:
             raise ValueError(f"当前仅支持学校模板: {', '.join(SUPPORTED_SCHOOLS)}")
 
-    def _get_formatter(self, school_id: str) -> YZUFormatter:
+    def _get_formatter(self, school_id: str) -> BaseFormatter:
         self._ensure_school_supported(school_id)
-        return self.formatter_registry[school_id]
+        return get_formatter_class(school_id)()
 
     def _normalize_thesis_type(self, thesis_type: str) -> str:
         if thesis_type in {"design", "report"}:

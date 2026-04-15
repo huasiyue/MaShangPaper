@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from app.schemas.documents import ReviewIssue, ReviewResponse
+from app.services.formatters.report import FormatReport
 
 
-def build_review_response(formatter, school_id: str, thesis_type: str) -> ReviewResponse:
-    report = formatter.report
+def build_review_response(
+    report: FormatReport,
+    report_text: str,
+    school_id: str,
+    thesis_type: str,
+) -> ReviewResponse:
     issues = [
         ReviewIssue(
             level=getattr(issue.level, "value", str(issue.level)),
@@ -26,6 +31,5 @@ def build_review_response(formatter, school_id: str, thesis_type: str) -> Review
         warning_count=report.warning_count,
         info_count=report.info_count,
         issues=issues,
-        report_text=formatter.generate_report(),
+        report_text=report_text,
     )
-
