@@ -20,8 +20,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from app.services.math_utils import latex_to_omml
 from app.services.formatters.spec import ThesisFormatSpec
-from app.services.formatters.schools.yzu import create_yzu_spec
-from app.services.formatters.schools.sdfmu import create_sdfmu_spec
+from app.services.formatters.schools import get_spec as _get_spec_from_registry
 
 
 MATH_FONT = 'Times New Roman'
@@ -36,41 +35,85 @@ _ALIGNMENT_MAP = {
 
 
 def _resolve_spec(school_id: str, thesis_type: str) -> ThesisFormatSpec:
-    """根据 school_id 和 thesis_type 加载格式规格。"""
-    if school_id == "sdfmu":
-        return create_sdfmu_spec(thesis_type)
-    return create_yzu_spec(thesis_type)
+    """根据 school_id 从注册表加载格式规格。新增学校只需注册 spec 工厂。"""
+    return _get_spec_from_registry(school_id, thesis_type)
 
 
 def _add_block_equation(doc, latex_str, eq_label: str = ""):
     """向 Word 文档中添加一个居中的块级 OMML 公式段落。
 
-    eq_label: 如 "(3-1)"，为空则不编号。
+    使用三列不可见表格实现：左占位 | 居中公式 | 右编号。
     """
-    para = doc.add_paragraph()
-    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    para.paragraph_format.line_spacing = 1.5
+    if not eq_label:
+        # 无编号：直接居中段落
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        para.paragraph_format.line_spacing = 1.5
+        try:
+            omml_elem = latex_to_omml(latex_str, display='block')
+            para._element.append(omml_elem)
+        except Exception:
+            run = para.add_run(latex_str)
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(12)
+        return
+
+    # 有编号：三列不可见表格，公式居中，编号靠右
+    tbl = doc.add_table(rows=1, cols=3)
+    tbl.autofit = True
+
+    # 移除表格所有边框和样式
+    tbl_style = tbl.style
+    try:
+        tbl.style = 'Table Grid'
+    except Exception:
+        pass
+
+    # 设置表格宽度为页面可用宽度
+    from docx.oxml.ns import nsdecls
+    from docx.oxml import parse_xml
+    tbl_element = tbl._tbl
+    tblPr = tbl_element.tblPr
+
+    # 无边框
+    tblBorders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '  <w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '</w:tblBorders>'
+    )
+    # 移除旧边框
+    for child in list(tblPr):
+        if child.tag.endswith('tblBorders'):
+            tblPr.remove(child)
+    tblPr.append(tblBorders)
+
+    # 中间列放公式（居中）
+    cell_eq = tbl.cell(0, 1)
+    cell_eq.width = Cm(10)
+    para_eq = cell_eq.paragraphs[0]
+    para_eq.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    para_eq.paragraph_format.line_spacing = 1.5
     try:
         omml_elem = latex_to_omml(latex_str, display='block')
-        para._element.append(omml_elem)
+        para_eq._element.append(omml_elem)
     except Exception:
-        run = para.add_run(latex_str)
+        run = para_eq.add_run(latex_str)
         run.font.name = 'Times New Roman'
         run.font.size = Pt(12)
 
-    # 右对齐的公式编号（使用制表符右对齐）
-    if eq_label:
-        run_num = para.add_run(f"\t{eq_label}")
-        run_num.font.name = 'Times New Roman'
-        run_num.font.size = Pt(12)
-        # 设置右对齐制表位
-        pPr = para._element.get_or_add_pPr()
-        tabs = OxmlElement('w:tabs')
-        tab = OxmlElement('w:tab')
-        tab.set(qn('w:val'), 'right')
-        tab.set(qn('w:pos'), '8300')  # 大致右侧位置 (twips)
-        tabs.append(tab)
-        pPr.append(tabs)
+    # 右列放编号
+    cell_num = tbl.cell(0, 2)
+    cell_num.width = Cm(2)
+    para_num = cell_num.paragraphs[0]
+    para_num.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run_num = para_num.add_run(eq_label)
+    run_num.font.name = 'Times New Roman'
+    run_num.font.size = Pt(12)
 
 
 def _add_inline_equation(para, latex_str):
@@ -238,7 +281,7 @@ def _set_page_number_roman(section):
     if pgNumType is None:
         pgNumType = OxmlElement('w:pgNumType')
         sectPr.append(pgNumType)
-    pgNumType.set(qn('w:fmt'), 'lowerLetter')  # Word 用 lowerRoman 不被识别，用自定义
+    pgNumType.set(qn('w:fmt'), 'lowerRoman')
     pgNumType.set(qn('w:start'), '1')
 
 
@@ -296,6 +339,26 @@ def _add_page_number_to_footer(section, spec: ThesisFormatSpec):
     fldChar_end = OxmlElement('w:fldChar')
     fldChar_end.set(qn('w:fldCharType'), 'end')
     run3._r.append(fldChar_end)
+
+
+def _add_header(section, spec: ThesisFormatSpec):
+    """向页眉添加学校名称文本（右对齐，宋体 10.5pt）。"""
+    ft = spec.fonts
+    fs = spec.font_sizes
+
+    header = section.header
+    header.is_linked_to_previous = False
+
+    if not header.paragraphs:
+        para = header.add_paragraph()
+    else:
+        para = header.paragraphs[0]
+
+    para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run = para.add_run(spec.header_text)
+    run.font.name = ft.chinese_font
+    run.font.size = Pt(fs.header_footer)
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), ft.chinese_font)
 
 
 def parse_image_meta(alt_text: str):
@@ -634,6 +697,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
     fig_num = 0
     tab_num = 0
     eq_num = 0  # 公式编号（按章节重置）
+    just_parsed_table_caption = False
     
     i = 0
     while i < len(lines):
@@ -708,7 +772,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 caption, image_width, image_alignment = parse_image_meta(img_match.group(1).strip())
                 image_target = img_match.group(2).strip()
                 fig_num += 1
-                caption_text = f"图 {chap_num}-{fig_num} {caption}" if chap_num > 0 else f"图 {fig_num} {caption}"
+                caption_text = f"图{chap_num}-{fig_num} {caption}" if chap_num > 0 else f"图{fig_num} {caption}"
                 
                 para_img = doc.add_paragraph()
                 para_img.alignment = image_alignment
@@ -754,10 +818,10 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
             caption = cap_match.group(3).strip()
             if ctype == '图':
                 fig_num += 1
-                caption_text = f"图 {chap_num}-{fig_num} {caption}" if chap_num > 0 else f"图 {fig_num} {caption}"
+                caption_text = f"图{chap_num}-{fig_num} {caption}" if chap_num > 0 else f"图{fig_num} {caption}"
             else:
                 tab_num += 1
-                caption_text = f"表 {chap_num}-{tab_num} {caption}" if chap_num > 0 else f"表 {tab_num} {caption}"
+                caption_text = f"表{chap_num}-{tab_num} {caption}" if chap_num > 0 else f"表{tab_num} {caption}"
             
             para = doc.add_paragraph(caption_text, style='Caption')
             just_parsed_table_caption = (ctype == '表')
@@ -816,6 +880,27 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                     first_heading1 = False
                     i += 1
                     continue
+
+                # ── 特殊章节标题（前言/结论/致谢/附录/文献综述）──
+                # H1 级别但不编号，居中，分页
+                _SPECIAL_CHAPTER_KEYWORDS = ("前言", "结论", "致谢", "附录", "文献综述",
+                                             "foreword", "conclusion", "acknowledgement")
+                is_special_chapter = any(k in title_clean.lower() for k in _SPECIAL_CHAPTER_KEYWORDS)
+                if is_special_chapter and len(level_marks) <= 2:
+                    in_abstract = False
+                    para = doc.add_paragraph()
+                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    para.paragraph_format.space_after = Pt(12)
+                    run = para.add_run(title_clean)
+                    run.font.name = spec.fonts.heading_font
+                    run.font.size = Pt(spec.font_sizes.heading_1)
+                    run.font.bold = True
+                    run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.heading_font)
+                    if not first_heading1:
+                        para.paragraph_format.page_break_before = True
+                    first_heading1 = False
+                    i += 1
+                    continue
                 
                 # 论文题目（第一个一级标题，且不是"摘要"、"目录"等特殊标题）
                 if first_heading1 and title_clean and len(level_marks) <= 2:
@@ -836,8 +921,8 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 level = len(level_marks)
                 # 兼容使用者错误的一阶标注习惯
                 if level == 1 or (level == 2 and raw_title.startswith('第一章')):
-                    # ── 前言/正文分节（罗马→阿拉伯页码）──
-                    if in_front_matter:
+                    # ── 前言/正文分节 ──
+                    if in_front_matter and spec.use_roman_front_matter:
                         _add_section_break(doc)
                         in_front_matter = False
 
@@ -903,7 +988,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
             # 若之前没有出现专门的表题标注，则自动补充一个缺失的名字
             if i == 0 or not just_parsed_table_caption:
                 tab_num += 1
-                caption_text = f"表 {chap_num}-{tab_num} （请补充表名）" if chap_num > 0 else f"表 {tab_num} （请补充表名）"
+                caption_text = f"表{chap_num}-{tab_num} （请补充表名）" if chap_num > 0 else f"表{tab_num} （请补充表名）"
                 doc.add_paragraph(caption_text, style='Caption')
             
             table_lines = []
@@ -1083,19 +1168,20 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
         
         i += 1
 
-    # ── 后处理：设置页码（前言罗马，正文阿拉伯）──
+    # ── 后处理：设置页眉 + 页码 ──
     sections = doc.sections
-    if len(sections) >= 2:
-        # 第一节（前言）：罗马数字页码
+    for sec in sections:
+        _add_header(sec, spec)
+
+    if len(sections) >= 2 and spec.use_roman_front_matter:
         _set_page_number_roman(sections[0])
         _add_page_number_to_footer(sections[0], spec)
-        # 第二节（正文）：阿拉伯数字页码，从 1 开始
         _set_page_number_arabic(sections[1])
         _add_page_number_to_footer(sections[1], spec)
-    elif len(sections) == 1:
-        # 只有一个节，直接设置阿拉伯页码
-        _set_page_number_arabic(sections[0])
-        _add_page_number_to_footer(sections[0], spec)
+    else:
+        sec = sections[-1]
+        _set_page_number_arabic(sec)
+        _add_page_number_to_footer(sec, spec)
 
     # 保存文档
     doc.save(output_path)

@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-SchoolId = Literal["yzu", "sdfmu_ai"]
+SchoolId = Literal["sdfmu", "yzu", "sdfmu_ai"]
 ThesisTypeValue = Literal["thesis", "design_report"]
 
 

@@ -27,7 +27,7 @@ from app.services.formatters.spec import (
     SpacingRules,
     ThesisFormatSpec,
 )
-from app.services.formatters.schools import register_formatter
+from app.services.formatters.schools import register_formatter, register_spec_factory
 from app.schemas.documents import ReviewResponse
 from app.services.review_report import build_review_response
 
@@ -156,5 +156,4 @@ class YZUFormatter(BaseFormatter):
 
 # 注册 YZU
 register_formatter("yzu", YZUFormatter)
-# sdfmu_ai 使用 YZU 格式（暂无独立规格）
-register_formatter("sdfmu_ai", YZUFormatter)
+register_spec_factory("yzu", create_yzu_spec)

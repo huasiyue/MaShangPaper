@@ -144,3 +144,4 @@ class ThesisFormatSpec:
     cover: CoverPageRules
     special_titles: tuple[str, ...]
     body_first_line_indent: float  # cm
+    use_roman_front_matter: bool = True   # 前言部分是否使用罗马数字页码（YZU=True, SDFMU=False）

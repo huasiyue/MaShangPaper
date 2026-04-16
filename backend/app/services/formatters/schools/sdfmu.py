@@ -27,7 +27,7 @@ from app.services.formatters.spec import (
     SpacingRules,
     ThesisFormatSpec,
 )
-from app.services.formatters.schools import register_formatter
+from app.services.formatters.schools import register_formatter, register_spec_factory
 from app.schemas.documents import ReviewResponse
 from app.services.review_report import build_review_response
 
@@ -118,6 +118,7 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
         ),
         special_titles=("摘要", "abstract", "参考文献", "references", "目录", "contents", "前言", "结论", "致谢", "附录", "文献综述"),
         body_first_line_indent=0.74,
+        use_roman_front_matter=False,
     )
 
 
@@ -149,3 +150,6 @@ class SDFMUFormatter(BaseFormatter):
 
 # 注册学校
 register_formatter("sdfmu", SDFMUFormatter)
+register_formatter("sdfmu_ai", SDFMUFormatter)
+register_spec_factory("sdfmu", create_sdfmu_spec)
+register_spec_factory("sdfmu_ai", create_sdfmu_spec)
