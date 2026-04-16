@@ -30,7 +30,7 @@ const thesisProxy = computed({
     <div class="selector-block">
       <span class="selector-label">学校</span>
       <a-select v-model="schoolProxy" size="small" style="width: 260px">
-        <a-option value="sdfmu">山东第一医科大学（医学信息与人工智能学院）</a-option>
+        <a-option value="sdfmu">山东第一医科大学（山东省医学科学院）</a-option>
         <a-option value="yzu">扬州大学</a-option>
       </a-select>
     </div>

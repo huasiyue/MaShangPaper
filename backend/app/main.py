@@ -41,6 +41,12 @@ def create_app() -> FastAPI:
     async def root() -> HealthResponse:
         return HealthResponse(status="ok", school_support=list(SUPPORTED_SCHOOLS))
 
+    from app.services.document_pipeline import cleanup_old_temp_files
+
+    @app.on_event("startup")
+    async def _startup_cleanup() -> None:
+        cleanup_old_temp_files(max_age_hours=24)
+
     app.include_router(documents_router)
     app.include_router(assets_router)
     return app

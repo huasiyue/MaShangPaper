@@ -34,13 +34,14 @@ from app.services.review_report import build_review_response
 
 def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
     """创建山东第一医科大学论文格式规格。"""
+    logo_path = Path(__file__).resolve().parents[4] / "assets" / "sdfmu_seal_placeholder.png"
     return ThesisFormatSpec(
         school_id="sdfmu",
         school_name="山东第一医科大学（山东省医学科学院）",
         header_text="山东第一医科大学（山东省医学科学院）本科毕业论文(设计)",
         page_layout=PageLayout(
-            top_margin=2.54, bottom_margin=2.54, left_margin=3.17,
-            right_margin=3.17, gutter=0, header_distance=1.5, footer_distance=1.75,
+            top_margin=2.2, bottom_margin=2.2, left_margin=2.2,
+            right_margin=2.2, gutter=0, header_distance=1.5, footer_distance=1.75,
         ),
         fonts=FontAssignments(
             chinese_font="宋体",
@@ -55,7 +56,8 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
         ),
         spacing=SpacingRules(
             title_line_spacing=1.5, heading_line_spacing=1.5,
-            body_line_spacing=1.5, paragraph_spacing=6,
+            body_line_spacing=23, paragraph_spacing=6,
+            body_line_spacing_rule="exact",
         ),
         headings=(
             HeadingRule(alignment="center", font="黑体", size=24, bold=True),   # 0: 论文标题（小一）
@@ -72,16 +74,22 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
             level_4=r"^\d+\.\d+\.\d+",
         ),
         abstract=AbstractRules(
-            min_chars=200, label_font="黑体", font_size=14,
+            min_chars=200, label_font="黑体", font_size=16,
             keywords=("摘要", "abstract"),
             boundary_keywords=("关键词", "keywords", "目录"),
             first_line_indent=0.74,
+            keywords_label="关键词",
+            english_keywords_label="Key words",
+            require_english_abstract=True,
         ),
         references=ReferenceRules(
             standard="GB7714-87", min_count=15, max_typical_count=50,
             numbering_id=99, title_font="黑体", title_size=16,
             section_end_keywords=("致谢", "附录"),
             hanging_indent=0.74,
+            min_foreign_count=2,
+            min_recent_count=5,
+            recent_year_span=5,
         ),
         signature=SignatureRules(
             keywords=("教学机构", "专业", "学生姓名", "指导教师", "学号"),
@@ -115,9 +123,26 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
             field_label_font="宋体",
             field_label_size=16,
             underline_width=6.0,
+            declaration_title="论文原创性保证书",
+            declaration_body=(
+                "我保证所提交的论文都是自己独立完成，如有抄袭、剽窃、雷同等现象，愿承担相应后果，接受校（院）的处理。",
+            ),
+            declaration_fields=("专业", "班级", "签名"),
+            declaration_date_placeholder="____年__月__日",
+            logo_path=str(logo_path),
+            logo_width=5.2,
         ),
         special_titles=("摘要", "abstract", "参考文献", "references", "目录", "contents", "前言", "结论", "致谢", "附录", "文献综述"),
         body_first_line_indent=0.74,
+        special_title_display_map=(
+            ("摘要", "摘  要"),
+            ("目录", "目  录"),
+            ("前言", "前  言"),
+            ("结论", "结  论"),
+            ("致谢", "致  谢"),
+            ("附录", "附  录"),
+        ),
+        required_sections=("论文原创性保证书", "摘要", "abstract", "目录", "前言", "参考文献", "致谢"),
         use_roman_front_matter=False,
     )
 

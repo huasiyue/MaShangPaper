@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -19,6 +20,8 @@ from app.services.formatters.schools import get_formatter_class
 
 def cleanup_paths(paths: list[Path]) -> None:
     for path in paths:
+        if path is None:
+            continue
         try:
             if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
@@ -26,6 +29,55 @@ def cleanup_paths(paths: list[Path]) -> None:
                 path.unlink(missing_ok=True)
         except OSError:
             continue
+
+
+def cleanup_old_temp_files(max_age_hours: int = 24) -> int:
+    """删除 TEMP_DIR 下超过指定时间的文件/目录。"""
+    import time
+    if not TEMP_DIR.exists():
+        return 0
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for path in TEMP_DIR.iterdir():
+        try:
+            if path.stat().st_mtime < cutoff:
+                cleanup_paths([path])
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def normalize_word_input(input_path: Path) -> tuple[Path, list[Path]]:
+    """将上传的 Word 文件规整为 python-docx 可读取的 .docx。"""
+    suffix = input_path.suffix.lower()
+    if suffix == ".docx":
+        return input_path, []
+
+    if suffix != ".doc":
+        raise ValueError("仅支持 .doc 或 .docx 文件。")
+
+    converted_path = TEMP_DIR / f"{uuid4().hex}_{input_path.stem}.docx"
+    try:
+        subprocess.run(
+            ["textutil", "-convert", "docx", str(input_path), "-output", str(converted_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("当前环境不支持直接转换 .doc 文件，请先将文件另存为 .docx 后重试。") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        message = ".doc 文件转换失败。"
+        if detail:
+            message = f"{message} {detail}"
+        raise RuntimeError(message) from exc
+
+    if not converted_path.exists():
+        raise RuntimeError(".doc 文件转换失败，未生成可用的 .docx 文件。")
+
+    return converted_path, [converted_path]
 
 
 class DocumentPipeline:
@@ -81,7 +133,11 @@ class DocumentPipeline:
     ) -> ReviewResponse:
         normalized_type = self._normalize_thesis_type(thesis_type)
         formatter = self._get_formatter(school_id)
-        return formatter.review_document(input_path=input_path, thesis_type=normalized_type)
+        normalized_input, cleanup_targets = normalize_word_input(input_path)
+        try:
+            return formatter.review_document(input_path=normalized_input, thesis_type=normalized_type)
+        finally:
+            cleanup_paths(cleanup_targets)
 
     def format_document(
         self,
@@ -92,11 +148,15 @@ class DocumentPipeline:
         normalized_type = self._normalize_thesis_type(thesis_type)
         formatter = self._get_formatter(school_id)
         formatted_path = TEMP_DIR / f"{uuid4().hex}_{input_path.stem}_formatted.docx"
-        saved_path, review = formatter.format_document(
-            input_path=input_path,
-            output_path=formatted_path,
-            thesis_type=normalized_type,
-        )
+        normalized_input, cleanup_targets = normalize_word_input(input_path)
+        try:
+            saved_path, review = formatter.format_document(
+                input_path=normalized_input,
+                output_path=formatted_path,
+                thesis_type=normalized_type,
+            )
+        finally:
+            cleanup_paths(cleanup_targets)
 
         archive_path = TEMP_DIR / f"{uuid4().hex}_{input_path.stem}_formatted.zip"
         with ZipFile(archive_path, mode="w", compression=ZIP_DEFLATED) as archive:

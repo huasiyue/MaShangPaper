@@ -49,6 +49,7 @@ class SpacingRules:
     heading_line_spacing: float
     body_line_spacing: float
     paragraph_spacing: float        # pt 段前段后
+    body_line_spacing_rule: str = "multiple"   # "multiple" / "exact"
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,9 @@ class AbstractRules:
     keywords: tuple[str, ...]
     boundary_keywords: tuple[str, ...]
     first_line_indent: float  # cm
+    keywords_label: str = "关键词"
+    english_keywords_label: str = "Keywords"
+    require_english_abstract: bool = False
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,9 @@ class ReferenceRules:
     title_size: float
     section_end_keywords: tuple[str, ...]
     hanging_indent: float   # cm
+    min_foreign_count: int = 0
+    min_recent_count: int = 0
+    recent_year_span: int = 5
 
 
 @dataclass(frozen=True)
@@ -124,6 +131,12 @@ class CoverPageRules:
     field_label_font: str
     field_label_size: float
     underline_width: float          # cm 下划线长度
+    declaration_title: str = ""
+    declaration_body: tuple[str, ...] = ()
+    declaration_fields: tuple[str, ...] = ()
+    declaration_date_placeholder: str = ""
+    logo_path: str = ""
+    logo_width: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -144,4 +157,6 @@ class ThesisFormatSpec:
     cover: CoverPageRules
     special_titles: tuple[str, ...]
     body_first_line_indent: float  # cm
+    special_title_display_map: tuple[tuple[str, str], ...] = ()
+    required_sections: tuple[str, ...] = ()
     use_roman_front_matter: bool = True   # 前言部分是否使用罗马数字页码（YZU=True, SDFMU=False）

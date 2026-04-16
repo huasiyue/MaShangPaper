@@ -58,6 +58,8 @@ async def convert_document(
         result = pipeline.convert_markdown(content=content, school_id=school_id, thesis_type=thesis_type)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=error_payload("unsupported_school", str(exc))) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=error_payload("internal_error", str(exc))) from exc
 
     filename = f"{school_id}_{thesis_type}_draft.docx"
     return FileResponse(
@@ -96,6 +98,8 @@ async def export_project_package(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=error_payload("bad_request", str(exc))) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=error_payload("internal_error", str(exc))) from exc
 
     filename = f"{project_name or 'paper-project'}.zip"
     return FileResponse(
@@ -124,6 +128,7 @@ async def import_project_package(request: Request, file: UploadFile = File(...))
             detail=error_payload("invalid_file_type", "仅支持 .zip 项目包。"),
         )
 
+    extract_dir: Path | None = None
     try:
         project, extract_dir = pipeline.import_project_package(stored_path)
         base_url = str(request.base_url).rstrip("/")
@@ -145,8 +150,11 @@ async def import_project_package(request: Request, file: UploadFile = File(...))
             assets=normalized_assets,
         )
     except ValueError as exc:
-        cleanup_paths([stored_path])
+        cleanup_paths([stored_path, extract_dir])
         raise HTTPException(status_code=400, detail=error_payload("bad_request", str(exc))) from exc
+    except Exception as exc:
+        cleanup_paths([stored_path, extract_dir])
+        raise HTTPException(status_code=500, detail=error_payload("internal_error", str(exc))) from exc
 
 
 @router.post(
@@ -191,6 +199,8 @@ async def format_document(
 ):
     stored_path = await pipeline.persist_upload(file)
 
+    formatted_path: Path | None = None
+    archive_path: Path | None = None
     try:
         ensure_word_file(stored_path)
         formatted_path, archive_path, _review = pipeline.format_document(
@@ -199,8 +209,11 @@ async def format_document(
             thesis_type=thesis_type,
         )
     except ValueError as exc:
-        cleanup_paths([stored_path])
+        cleanup_paths([stored_path, formatted_path, archive_path])
         raise HTTPException(status_code=400, detail=error_payload("bad_request", str(exc))) from exc
+    except Exception as exc:
+        cleanup_paths([stored_path, formatted_path, archive_path])
+        raise HTTPException(status_code=500, detail=error_payload("internal_error", str(exc))) from exc
 
     filename = f"{stored_path.stem}_formatted_bundle.zip"
     return FileResponse(

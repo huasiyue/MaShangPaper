@@ -16,8 +16,8 @@ from docx import Document
 from docx.shared import Pt, Cm, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+from docx.oxml.ns import qn, nsdecls
+from docx.oxml import OxmlElement, parse_xml
 from app.services.math_utils import latex_to_omml
 from app.services.formatters.spec import ThesisFormatSpec
 from app.services.formatters.schools import get_spec as _get_spec_from_registry
@@ -37,6 +37,160 @@ _ALIGNMENT_MAP = {
 def _resolve_spec(school_id: str, thesis_type: str) -> ThesisFormatSpec:
     """根据 school_id 从注册表加载格式规格。新增学校只需注册 spec 工厂。"""
     return _get_spec_from_registry(school_id, thesis_type)
+
+
+def _normalize_title_token(text: str) -> str:
+    return re.sub(r'\s+', '', text).strip().lower()
+
+
+def _normalize_field_label(text: str) -> str:
+    cleaned = text.replace('*', '').replace('_', '').strip()
+    cleaned = re.sub(r'[：:]', '', cleaned)
+    cleaned = re.sub(r'\s+', '', cleaned)
+    return cleaned.lower()
+
+
+_COVER_FIELD_ALIASES = {
+    '题目': ('题目', '论文题目', '标题', 'title'),
+    '教学机构': ('教学机构', '学院', '所在学院'),
+    '专业': ('专业',),
+    '年级、班级': ('年级、班级', '班级', '年级班级'),
+    '学号': ('学号',),
+    '学生姓名': ('学生姓名', '姓名'),
+    '指导教师': ('指导教师', '导师'),
+    '企业导师': ('企业导师',),
+    '完成日期': ('完成日期', '日期'),
+}
+
+
+def _get_display_title(spec: ThesisFormatSpec, text: str) -> str:
+    normalized = _normalize_title_token(text)
+    for source, display in spec.special_title_display_map:
+        if _normalize_title_token(source) == normalized:
+            return display
+    return text.strip()
+
+
+def _has_heading(lines: list[str], *candidates: str) -> bool:
+    normalized_candidates = {_normalize_title_token(candidate) for candidate in candidates if candidate}
+    for line in lines:
+        stripped = line.strip()
+        match = re.match(r'^(#{1,6})\s+(.*)', stripped)
+        if not match:
+            continue
+        title = clean_heading(match.group(2).strip())
+        if _normalize_title_token(title) in normalized_candidates:
+            return True
+    return False
+
+
+def _extract_cover_metadata(lines: list[str]) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    in_cover = False
+
+    for line in lines:
+        stripped = line.strip()
+        heading_match = re.match(r'^(#{1,6})\s+(.*)', stripped)
+        if heading_match:
+            title = clean_heading(heading_match.group(2).strip())
+            normalized = _normalize_title_token(title)
+            if normalized in {'封面', 'cover'}:
+                in_cover = True
+                continue
+            if in_cover:
+                break
+
+        if not in_cover or not stripped:
+            continue
+
+        candidate = stripped.replace('**', '').replace('__', '').strip()
+        parts = re.split(r'[：:]', candidate, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        key = _normalize_field_label(parts[0])
+        value = parts[1].strip()
+        if value:
+            metadata[key] = value
+
+    return metadata
+
+
+def _lookup_cover_metadata(metadata: dict[str, str], *aliases: str) -> str | None:
+    normalized_aliases = {_normalize_field_label(alias) for alias in aliases if alias}
+    for alias in normalized_aliases:
+        value = metadata.get(alias)
+        if value:
+            return value
+    return None
+
+
+def _ensure_page_break(doc):
+    if any(paragraph.text.strip() for paragraph in doc.paragraphs):
+        doc.add_page_break()
+
+
+def _get_style(doc, style_name: str):
+    try:
+        return doc.styles[style_name]
+    except KeyError:
+        return None
+
+
+def _resolve_body_line_spacing(spec: ThesisFormatSpec):
+    if spec.spacing.body_line_spacing_rule == "exact":
+        return Pt(spec.spacing.body_line_spacing)
+    return spec.spacing.body_line_spacing
+
+
+def _resolve_body_first_line_indent(spec: ThesisFormatSpec):
+    return Pt(spec.font_sizes.body * 2)
+
+
+def _resolve_front_title_size(spec: ThesisFormatSpec):
+    if spec.school_id in {"sdfmu", "sdfmu_ai"}:
+        return Pt(spec.font_sizes.title)
+    return Pt(max(spec.font_sizes.abstract_label, spec.font_sizes.heading_1))
+
+
+def _set_cell_borders(cell, top: str = "single", bottom: str = "single", left: str = "single", right: str = "single",
+                      top_size: str = "6", bottom_size: str = "6", left_size: str = "6", right_size: str = "6",
+                      color: str = "BFBFBF"):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    borders = OxmlElement("w:tcBorders")
+    for edge, val, size in (
+        ("top", top, top_size),
+        ("bottom", bottom, bottom_size),
+        ("left", left, left_size),
+        ("right", right, right_size),
+    ):
+        edge_el = OxmlElement(f"w:{edge}")
+        edge_el.set(qn("w:val"), val)
+        edge_el.set(qn("w:sz"), size)
+        edge_el.set(qn("w:space"), "0")
+        edge_el.set(qn("w:color"), color)
+        borders.append(edge_el)
+    for child in list(tc_pr):
+        if child.tag.endswith("tcBorders"):
+            tc_pr.remove(child)
+    tc_pr.append(borders)
+
+
+def _try_add_cover_logo(doc, spec: ThesisFormatSpec):
+    cv = spec.cover
+    if not cv.logo_path or cv.logo_width <= 0:
+        return
+
+    logo_path = Path(cv.logo_path)
+    if not logo_path.exists():
+        return
+
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = para.add_run()
+    try:
+        run.add_picture(str(logo_path), width=Cm(cv.logo_width))
+    except Exception:
+        return
 
 
 def _add_block_equation(doc, latex_str, eq_label: str = ""):
@@ -185,71 +339,195 @@ def _insert_toc_field(doc):
     return para
 
 
-def _generate_cover_page(doc, spec: ThesisFormatSpec):
-    """生成论文封面页模板。"""
-    from docx.shared import Emu
+def _generate_cover_page(doc, spec: ThesisFormatSpec, metadata: dict[str, str] | None = None):
+    """生成论文封面页模板，尽量贴近学校模板版式。"""
+    from docx.enum.table import WD_TABLE_ALIGNMENT
     cv = spec.cover
-
-    # 空行（顶部留白）
-    for _ in range(3):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
+    metadata = metadata or {}
 
     # 学校名称
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(48)
+    p.paragraph_format.space_after = Pt(6)
     run = p.add_run(cv.university_name)
     run.font.name = cv.university_font
     run.font.size = Pt(cv.university_size)
+    run.font.bold = True
     run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.university_font)
-
-    # 空行
-    doc.add_paragraph()
 
     # 论文类型标签（如"本科毕业论文（设计）"）
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(24)
     run = p.add_run(cv.thesis_type_label)
     run.font.name = cv.thesis_type_font
     run.font.size = Pt(cv.thesis_type_size)
+    run.font.bold = True
     run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.thesis_type_font)
 
-    # 空行
-    for _ in range(2):
-        doc.add_paragraph()
+    _try_add_cover_logo(doc, spec)
 
-    # 论文标题（占位）
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run('（论文题目）')
+    # 论文题目区域
+    title_table = doc.add_table(rows=1, cols=2)
+    title_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    title_table.autofit = False
+    title_table.columns[0].width = Cm(3.5)
+    title_table.columns[1].width = Cm(13.5)
+    title_left = title_table.cell(0, 0)
+    title_right = title_table.cell(0, 1)
+
+    for cell in (title_left, title_right):
+        _set_cell_borders(cell, top="dashed", bottom="dashed", left="dashed", right="dashed", color="BFBFBF")
+
+    left_para = title_left.paragraphs[0]
+    left_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    left_para.paragraph_format.space_before = Pt(6)
+    left_para.paragraph_format.space_after = Pt(6)
+    left_run = left_para.add_run("题  目：")
+    left_run.font.name = cv.title_font
+    left_run.font.size = Pt(cv.title_size)
+    left_run.font.bold = True
+    left_run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.title_font)
+
+    p = title_right.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(6)
+    title_text = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES['题目']) or '（论文题目）'
+    run = p.add_run(title_text)
     run.font.name = cv.title_font
     run.font.size = Pt(cv.title_size)
     run.font.bold = True
     run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.title_font)
 
-    # 空行
-    for _ in range(3):
-        doc.add_paragraph()
+    doc.add_paragraph()
 
-    # 字段行（如：学院 ________）
-    for label, placeholder in cv.fields:
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(6)
-        p.paragraph_format.space_after = Pt(6)
+    # 字段表格
+    table = doc.add_table(rows=len(cv.fields), cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    table.columns[0].width = Cm(3.2)
+    table.columns[1].width = Cm(9.4)
 
-        run_label = p.add_run(f'{label}：')
+    for i, (label, placeholder) in enumerate(cv.fields):
+        row = table.rows[i]
+        left_cell = row.cells[0]
+        right_cell = row.cells[1]
+        field_value = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get(label, (label,))) or placeholder
+        _set_cell_borders(left_cell, color="BFBFBF")
+        _set_cell_borders(right_cell, left="none", color="000000")
+
+        # 左列：标签
+        p_left = left_cell.paragraphs[0]
+        p_left.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_left.paragraph_format.space_before = Pt(4)
+        p_left.paragraph_format.space_after = Pt(4)
+        run_label = p_left.add_run(label)
         run_label.font.name = cv.field_label_font
         run_label.font.size = Pt(cv.field_label_size)
         run_label._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
 
-        # 使用下划线占位
-        run_underline = p.add_run(placeholder)
+        # 右列：内容
+        p_right = right_cell.paragraphs[0]
+        p_right.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right.paragraph_format.space_before = Pt(4)
+        p_right.paragraph_format.space_after = Pt(4)
+        run_underline = p_right.add_run(field_value)
         run_underline.font.name = cv.field_label_font
         run_underline.font.size = Pt(cv.field_label_size)
-        run_underline.font.underline = True
         run_underline._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
+
+    doc.add_paragraph()
+    date_para = doc.add_paragraph()
+    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    date_para.paragraph_format.space_before = Pt(18)
+    date_text = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get("完成日期", ("日期",))) or "____年__月__日"
+    date_run = date_para.add_run(date_text)
+    date_run.font.name = cv.field_label_font
+    date_run.font.size = Pt(cv.field_label_size)
+    date_run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
+
+
+def _generate_declaration_page(doc, spec: ThesisFormatSpec, metadata: dict[str, str] | None = None):
+    """生成原创性保证书页面。"""
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    cv = spec.cover
+    metadata = metadata or {}
+    if not cv.declaration_title:
+        return
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_before = Pt(70)
+    title.paragraph_format.space_after = Pt(22)
+    run = title.add_run(cv.declaration_title)
+    run.font.name = spec.fonts.heading_font
+    run.font.size = Pt(spec.font_sizes.title - 2)
+    run.font.bold = True
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.heading_font)
+
+    for line in cv.declaration_body:
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        para.paragraph_format.line_spacing = _resolve_body_line_spacing(spec)
+        para.paragraph_format.first_line_indent = Pt(0)
+        para.paragraph_format.space_after = Pt(6)
+        run = para.add_run(line)
+        run.font.name = spec.fonts.english_font
+        run.font.size = Pt(spec.font_sizes.body + 2)
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font)
+
+    doc.add_paragraph()
+
+    table = doc.add_table(rows=len(cv.declaration_fields), cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    table.columns[0].width = Cm(2.0)
+    table.columns[1].width = Cm(8.2)
+
+    for row_idx, field in enumerate(cv.declaration_fields):
+        left_cell = table.cell(row_idx, 0)
+        right_cell = table.cell(row_idx, 1)
+        _set_cell_borders(left_cell, color="BFBFBF")
+        _set_cell_borders(right_cell, left="none", color="000000")
+
+        if field == "专业":
+            field_value = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get("专业", ("专业",)))
+        elif field == "班级":
+            field_value = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get("年级、班级", ("班级",)))
+        else:
+            field_value = None
+
+        label_para = left_cell.paragraphs[0]
+        label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        label_para.paragraph_format.space_before = Pt(4)
+        label_para.paragraph_format.space_after = Pt(4)
+        label_run = label_para.add_run(f"{field}：")
+        label_run.font.name = spec.fonts.english_font
+        label_run.font.size = Pt(spec.font_sizes.body)
+        label_run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font)
+
+        value_para = right_cell.paragraphs[0]
+        value_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        value_para.paragraph_format.space_before = Pt(4)
+        value_para.paragraph_format.space_after = Pt(4)
+        value_run = value_para.add_run(field_value or "")
+        value_run.font.name = spec.fonts.english_font
+        value_run.font.size = Pt(spec.font_sizes.body)
+        value_run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font)
+
+    if cv.declaration_date_placeholder:
+        doc.add_paragraph()
+        date_para = doc.add_paragraph()
+        date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        date_para.paragraph_format.space_before = Pt(12)
+        date_text = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get("完成日期", ("日期",))) or cv.declaration_date_placeholder
+        date_run = date_para.add_run(date_text)
+        date_run.font.name = spec.fonts.english_font
+        date_run.font.size = Pt(spec.font_sizes.body)
+        date_run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font)
 
 
 def _add_section_break(doc):
@@ -294,6 +572,18 @@ def _set_page_number_arabic(section):
         sectPr.append(pgNumType)
     pgNumType.set(qn('w:fmt'), 'decimal')
     pgNumType.set(qn('w:start'), '1')
+
+
+def _clear_section_header_footer(section):
+    header = section.header
+    header.is_linked_to_previous = False
+    for paragraph in header.paragraphs:
+        paragraph.clear()
+
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    for paragraph in footer.paragraphs:
+        paragraph.clear()
 
 
 def _add_page_number_to_footer(section, spec: ThesisFormatSpec):
@@ -342,7 +632,7 @@ def _add_page_number_to_footer(section, spec: ThesisFormatSpec):
 
 
 def _add_header(section, spec: ThesisFormatSpec):
-    """向页眉添加学校名称文本（右对齐，宋体 10.5pt）。"""
+    """向页眉添加学校名称文本（右对齐，宋体 10.5pt），并添加底部下划线边框。"""
     ft = spec.fonts
     fs = spec.font_sizes
 
@@ -355,10 +645,28 @@ def _add_header(section, spec: ThesisFormatSpec):
         para = header.paragraphs[0]
 
     para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    para.paragraph_format.line_spacing = 1.0
+    para.paragraph_format.space_before = Pt(0)
+    para.paragraph_format.space_after = Pt(0)
+    para.paragraph_format.first_line_indent = Pt(0)
+    para.paragraph_format.left_indent = Pt(0)
+    para.paragraph_format.right_indent = Pt(0)
+    para.clear()
     run = para.add_run(spec.header_text)
     run.font.name = ft.chinese_font
     run.font.size = Pt(fs.header_footer)
     run._element.rPr.rFonts.set(qn('w:eastAsia'), ft.chinese_font)
+
+    # 添加页眉底部边框
+    pPr = para._p.get_or_add_pPr()
+    pBdr = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '6')
+    bottom.set(qn('w:space'), '0')
+    bottom.set(qn('w:color'), '000000')
+    pBdr.append(bottom)
+    pPr.append(pBdr)
 
 
 def parse_image_meta(alt_text: str):
@@ -558,12 +866,18 @@ def setup_styles(doc, spec: ThesisFormatSpec):
     ft = spec.fonts
     fs = spec.font_sizes
     sp = spec.spacing
+    body_line_spacing = _resolve_body_line_spacing(spec)
+    front_title_size = _resolve_front_title_size(spec)
 
     # 设置正文样式
     style = doc.styles['Normal']
     style.font.name = ft.english_font
     style.font.size = Pt(fs.body)
     style._element.rPr.rFonts.set(qn('w:eastAsia'), ft.chinese_font)
+    style.paragraph_format.line_spacing = body_line_spacing
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.first_line_indent = _resolve_body_first_line_indent(spec)
 
     # 设置 Heading 1 样式（一级标题）
     heading1 = doc.styles['Heading 1']
@@ -601,7 +915,47 @@ def setup_styles(doc, spec: ThesisFormatSpec):
     heading3._element.rPr.rFonts.set(qn('w:eastAsia'), h3.font)
     heading3.paragraph_format.alignment = _ALIGNMENT_MAP.get(h3.alignment, WD_ALIGN_PARAGRAPH.LEFT)
     heading3.paragraph_format.space_before = Pt(sp.paragraph_spacing)
+    heading3.paragraph_format.space_after = Pt(sp.paragraph_spacing)
     heading3.paragraph_format.line_spacing = sp.heading_line_spacing
+
+    # 设置 Heading 4 样式（四级标题）
+    heading4 = doc.styles['Heading 4']
+    h4 = spec.headings[4]
+    heading4.font.name = ft.english_font
+    heading4.font.size = Pt(h4.size)
+    heading4.font.bold = h4.bold
+    heading4.font.color.rgb = RGBColor(0, 0, 0)
+    heading4._element.rPr.rFonts.set(qn('w:eastAsia'), h4.font)
+    heading4.paragraph_format.alignment = _ALIGNMENT_MAP.get(h4.alignment, WD_ALIGN_PARAGRAPH.LEFT)
+    heading4.paragraph_format.space_before = Pt(sp.paragraph_spacing)
+    heading4.paragraph_format.space_after = Pt(sp.paragraph_spacing)
+    heading4.paragraph_format.line_spacing = sp.heading_line_spacing
+
+    # 设置 Title 样式（摘要/Abstract 等前置标题使用，避免混入目录）
+    title_builtin = _get_style(doc, 'Title')
+    if title_builtin is not None:
+        title_builtin.font.name = ft.english_font
+        title_builtin.font.size = front_title_size
+        title_builtin.font.bold = h1.bold
+        title_builtin.font.color.rgb = RGBColor(0, 0, 0)
+        title_builtin._element.rPr.rFonts.set(qn('w:eastAsia'), h1.font)
+        title_builtin.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_builtin.paragraph_format.space_before = Pt(sp.paragraph_spacing)
+        title_builtin.paragraph_format.space_after = Pt(sp.paragraph_spacing)
+        title_builtin.paragraph_format.line_spacing = sp.heading_line_spacing
+
+    # 设置 TOC Heading 样式（目录标题使用）
+    toc_heading = _get_style(doc, 'TOC Heading')
+    if toc_heading is not None:
+        toc_heading.font.name = ft.english_font
+        toc_heading.font.size = front_title_size
+        toc_heading.font.bold = h1.bold
+        toc_heading.font.color.rgb = RGBColor(0, 0, 0)
+        toc_heading._element.rPr.rFonts.set(qn('w:eastAsia'), h1.font)
+        toc_heading.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        toc_heading.paragraph_format.space_before = Pt(sp.paragraph_spacing)
+        toc_heading.paragraph_format.space_after = Pt(sp.paragraph_spacing)
+        toc_heading.paragraph_format.line_spacing = sp.heading_line_spacing
 
     # 设置论文标题样式（自定义样式）
     h0 = spec.headings[0]
@@ -645,7 +999,8 @@ def int_to_chinese(num):
 
 def clean_heading(text):
     text = re.sub(r'^#{1,4}\s*', '', text)
-    text = re.sub(r'^[第一二三四五六七八九十百]+章\s*', '', text)
+    text = re.sub(r'^第[一二三四五六七八九十百]+章\s*', '', text)
+    text = re.sub(r'^第\d+章\s*', '', text)
     text = re.sub(r'^第[一二三四五六七八九十百]+节\s*', '', text)
     text = re.sub(r'^[一二三四五六七八九十]+\s*[、\.]?\s*', '', text)
     text = re.sub(r'^（[一二三四五六七八九十]+）\s*', '', text)
@@ -659,9 +1014,11 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
 
     # 加载学校格式规格
     spec = _resolve_spec(school_id, thesis_type)
+    markdown_file = Path(markdown_path).resolve()
+    markdown_base_dir = markdown_file.parent
 
     # 读取 Markdown 文件
-    with open(markdown_path, 'r', encoding='utf-8') as f:
+    with open(markdown_file, 'r', encoding='utf-8') as f:
         content = f.read()
 
     # 创建 Word 文档
@@ -682,6 +1039,8 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
 
     # 解析 Markdown 内容
     lines = content.split('\n')
+    cover_metadata = _extract_cover_metadata(lines)
+    has_declaration_heading = _has_heading(lines, spec.cover.declaration_title)
     in_code_block = False
     in_math_block = False
     math_buffer = []
@@ -698,6 +1057,10 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
     tab_num = 0
     eq_num = 0  # 公式编号（按章节重置）
     just_parsed_table_caption = False
+    skip_auto_block_content = False
+    suppress_next_page_break = False
+    cover_generated = False
+    declaration_generated = False
     
     i = 0
     while i < len(lines):
@@ -709,6 +1072,13 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
             continue
         
         stripped = line.strip()
+
+        if skip_auto_block_content:
+            if stripped.startswith('#'):
+                skip_auto_block_content = False
+            else:
+                i += 1
+                continue
         
         # 代码块处理
         if stripped.startswith('```'):
@@ -779,6 +1149,8 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 run_img = para_img.add_run()
 
                 image_path = Path(image_target)
+                if not image_path.is_absolute():
+                    image_path = (markdown_base_dir / image_path).resolve()
                 if image_path.exists():
                     try:
                         run_img.add_picture(str(image_path), width=image_width)
@@ -800,12 +1172,9 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                     run_img.font.color.rgb = RGBColor(128, 128, 128)
                 
                 # 图题注 (图片下方)
-                para = doc.add_paragraph()
+                para = doc.add_paragraph(style='Caption')
                 para.alignment = image_alignment
-                run = para.add_run(caption_text)
-                run.font.name = spec.fonts.chinese_font
-                run.font.size = Pt(spec.font_sizes.caption)
-                run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font)
+                para.add_run(caption_text)
                 
                 just_parsed_table_caption = True
                 i += 1
@@ -835,44 +1204,83 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 level_marks = h_match.group(1)
                 raw_title = h_match.group(2).strip()
                 title_clean = clean_heading(raw_title)
+                title_clean_lower = title_clean.lower()
 
                 # ── 封面页 ──
-                if '封面' in title_clean or 'Cover' in title_clean.lower():
-                    _generate_cover_page(doc, spec)
+                if '封面' in title_clean or 'cover' in title_clean_lower:
+                    _generate_cover_page(doc, spec, cover_metadata)
+                    cover_generated = True
+                    _add_section_break(doc)
+                    suppress_next_page_break = True
+                    if spec.cover.declaration_title and not has_declaration_heading:
+                        _generate_declaration_page(doc, spec, cover_metadata)
+                        declaration_generated = True
+                        _add_section_break(doc)
+                        suppress_next_page_break = True
+                    skip_auto_block_content = True
+                    first_heading1 = False
+                    i += 1
+                    continue
+
+                if spec.cover.declaration_title and _normalize_title_token(title_clean) == _normalize_title_token(spec.cover.declaration_title):
+                    if not declaration_generated:
+                        _generate_declaration_page(doc, spec, cover_metadata)
+                        declaration_generated = True
+                        _add_section_break(doc)
+                        suppress_next_page_break = True
+                    skip_auto_block_content = True
                     first_heading1 = False
                     i += 1
                     continue
 
                 # 特殊区块标题
-                if '参考文献' in title_clean or 'References' in title_clean:
+                if '参考文献' in title_clean or 'references' in title_clean_lower:
                     in_abstract = False
                     in_references = True
-                    para = doc.add_paragraph('参考文献', style='Heading 1')
-                    if not first_heading1: para.paragraph_format.page_break_before = True
+                    if suppress_next_page_break:
+                        suppress_next_page_break = False
+                    else:
+                        _ensure_page_break(doc)
+                    para = doc.add_paragraph(_get_display_title(spec, '参考文献'), style='Heading 1')
                     first_heading1 = False
                     i += 1
                     continue
                 
-                if '摘要' in title_clean or 'Abstract' in title_clean.lower() and len(title_clean) < 15:
-                    if '摘要' in title_clean: in_abstract = True
+                if ('摘要' in title_clean or 'abstract' in title_clean_lower) and len(title_clean) < 15:
+                    in_abstract = True
+                    in_references = False
+                    if suppress_next_page_break:
+                        suppress_next_page_break = False
+                    else:
+                        _ensure_page_break(doc)
+                    display_title = _get_display_title(spec, title_clean)
                     para = doc.add_paragraph()
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    run = para.add_run(title_clean)
-                    run.font.name = spec.abstract.label_font
-                    run.font.size = Pt(spec.abstract.font_size)
+                    title_style = _get_style(doc, 'Title')
+                    if title_style is not None:
+                        para.style = title_style
+                    run = para.add_run(display_title)
+                    run.font.name = spec.abstract.label_font if '摘要' in title_clean else spec.fonts.english_font
+                    run.font.size = _resolve_front_title_size(spec)
                     run.font.bold = True
-                    run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.abstract.label_font)
+                    run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.abstract.label_font if '摘要' in title_clean else spec.fonts.english_font)
                     first_heading1 = False
                     i += 1
                     continue
 
-                if '目录' in title_clean or 'Contents' in title_clean.lower() and len(title_clean) < 15:
+                if ('目录' in title_clean or 'contents' in title_clean_lower) and len(title_clean) < 15:
                     in_abstract = False
+                    in_references = False
+                    if suppress_next_page_break:
+                        suppress_next_page_break = False
+                    else:
+                        _ensure_page_break(doc)
                     para = doc.add_paragraph()
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    run = para.add_run('目录')
+                    toc_style = _get_style(doc, 'TOC Heading')
+                    if toc_style is not None:
+                        para.style = toc_style
+                    run = para.add_run(_get_display_title(spec, '目录'))
                     run.font.name = spec.fonts.heading_font
-                    run.font.size = Pt(spec.font_sizes.heading_1)
+                    run.font.size = _resolve_front_title_size(spec)
                     run.font.bold = True
                     run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.heading_font)
                     # 插入真正的 TOC 域
@@ -888,16 +1296,18 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 is_special_chapter = any(k in title_clean.lower() for k in _SPECIAL_CHAPTER_KEYWORDS)
                 if is_special_chapter and len(level_marks) <= 2:
                     in_abstract = False
-                    para = doc.add_paragraph()
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    in_references = False
+                    if suppress_next_page_break:
+                        suppress_next_page_break = False
+                    else:
+                        _ensure_page_break(doc)
+                    para = doc.add_paragraph(style='Heading 1')
                     para.paragraph_format.space_after = Pt(12)
-                    run = para.add_run(title_clean)
+                    run = para.add_run(_get_display_title(spec, title_clean))
                     run.font.name = spec.fonts.heading_font
                     run.font.size = Pt(spec.font_sizes.heading_1)
                     run.font.bold = True
                     run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.heading_font)
-                    if not first_heading1:
-                        para.paragraph_format.page_break_before = True
                     first_heading1 = False
                     i += 1
                     continue
@@ -906,7 +1316,8 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 if first_heading1 and title_clean and len(level_marks) <= 2:
                     # 检查是否是特殊标题（摘要、目录等），这些不应该作为论文题目
                     special_titles = ['摘要', 'abstract', '目录', 'contents', '参考文献', 'references']
-                    is_special = any(s in title_clean.lower() for s in special_titles)
+                    normalized_title = _normalize_title_token(title_clean)
+                    is_special = normalized_title in {_normalize_title_token(item) for item in special_titles}
                     
                     if not is_special:
                         in_abstract = False
@@ -963,8 +1374,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                         heading_text = f"{sec_num}.{subsec_num}.{subsubsec_num} {title_clean}"
                     else:
                         heading_text = f"{subsubsec_num}. {title_clean}"
-                    para = doc.add_paragraph(heading_text, style='Heading 3')
-                    para.runs[0].font.size = Pt(spec.headings[4].size)
+                    doc.add_paragraph(heading_text, style='Heading 4')
                 
                 first_heading1 = False
                 just_parsed_table_caption = False
@@ -1102,44 +1512,70 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
         
         # 正文段落
         if stripped and not stripped.startswith('#') and not stripped.startswith('['):
-            # 特殊检测：加粗版摘要或关键词（针对截图1的情况）
-            if re.match(r'^\s*(\*\*|__)\s*(摘要|关键词)\s*(\*\*|__)\s*[:：]', stripped):
-                is_keywords_line = '关键词' in stripped
-                if not is_keywords_line:
-                    in_abstract = True
+            abstract_line_match = re.match(
+                r'^\s*(?:(\*\*|__))?\s*(摘要|Abstract)\s*(?:(\*\*|__))?\s*[:：]\s*(.*)$',
+                stripped,
+                re.IGNORECASE,
+            )
+            if abstract_line_match:
+                in_abstract = True
                 para = doc.add_paragraph()
-                if not is_keywords_line: para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                para.paragraph_format.line_spacing = _resolve_body_line_spacing(spec)
+                para.paragraph_format.first_line_indent = Cm(spec.abstract.first_line_indent)
+                content = abstract_line_match.group(4).strip()
+                run = para.add_run(content)
+                run.font.size = Pt(spec.font_sizes.body)
+                run.font.name = spec.fonts.english_font
+                run._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.abstract_font)
 
-                parts = re.split(r'([：:])', stripped, 1) # 分割前缀
-                # 前缀（摘要/关键词）
-                run_label = para.add_run(parts[0].replace('*','').replace('_',''))
-                run_label.font.name = spec.abstract.label_font
-                run_label.font.size = Pt(spec.abstract.font_size)
+                just_parsed_table_caption = False
+                i += 1
+                continue
+
+            keyword_line_match = re.match(
+                r'^\s*(?:(\*\*|__))?\s*(关键词|Keywords|Key words)\s*(?:(\*\*|__))?\s*[:：]\s*(.*)$',
+                stripped,
+                re.IGNORECASE,
+            )
+            if keyword_line_match:
+                raw_label = keyword_line_match.group(2)
+                content = keyword_line_match.group(4).strip()
+                is_chinese_keywords = _normalize_title_token(raw_label) == _normalize_title_token("关键词")
+                label_text = spec.abstract.keywords_label if is_chinese_keywords else spec.abstract.english_keywords_label
+                para = doc.add_paragraph()
+                run_label = para.add_run(label_text)
+                run_label.font.name = spec.abstract.label_font if is_chinese_keywords else spec.fonts.english_font
+                run_label.font.size = Pt(spec.font_sizes.body)
                 run_label.font.bold = True
-                run_label._element.rPr.rFonts.set(qn('w:eastAsia'), spec.abstract.label_font)
+                run_label._element.rPr.rFonts.set(
+                    qn('w:eastAsia'),
+                    spec.abstract.label_font if is_chinese_keywords else spec.fonts.english_font,
+                )
 
-                # 冒号及之后内容
-                if len(parts) > 1:
-                    run_rest = para.add_run(''.join(parts[1:]))
-                    run_rest.font.size = Pt(spec.abstract.font_size)
-                    run_rest.font.name = spec.fonts.english_font
-                    if not is_keywords_line and in_abstract:
-                        run_rest._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.abstract_font)
-                    else:
-                        run_rest._element.rPr.rFonts.set(qn('w:eastAsia'), spec.fonts.chinese_font if is_keywords_line else spec.fonts.abstract_font)
-                
+                run_rest = para.add_run(f"：{content}" if content else "：")
+                run_rest.font.size = Pt(spec.font_sizes.body)
+                run_rest.font.name = spec.fonts.english_font
+                run_rest._element.rPr.rFonts.set(
+                    qn('w:eastAsia'),
+                    spec.fonts.chinese_font if is_chinese_keywords else spec.fonts.english_font,
+                )
+
                 just_parsed_table_caption = False
                 i += 1
                 continue
 
             para = doc.add_paragraph()
             para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            para.paragraph_format.line_spacing = spec.spacing.body_line_spacing
-            para.paragraph_format.first_line_indent = Pt(spec.font_sizes.body * 2)
+            para.paragraph_format.line_spacing = _resolve_body_line_spacing(spec)
+            para.paragraph_format.first_line_indent = Cm(spec.abstract.first_line_indent) if in_abstract else Pt(spec.font_sizes.body * 2)
 
             # 判断是否为摘要内容
             is_abstract_content = False
-            if in_abstract and '关键词' not in stripped:
+            if in_abstract and not any(
+                _normalize_title_token(stripped).startswith(_normalize_title_token(label))
+                for label in (spec.abstract.keywords_label, spec.abstract.english_keywords_label, "Keywords", "Key words")
+            ):
                 is_abstract_content = True
 
             # 处理正文中的行内公式和引用上标
@@ -1170,8 +1606,17 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
 
     # ── 后处理：设置页眉 + 页码 ──
     sections = doc.sections
-    for sec in sections:
-        _add_header(sec, spec)
+    skip_header_sections = 0
+    if cover_generated:
+        skip_header_sections += 1
+    if declaration_generated:
+        skip_header_sections += 1
+
+    for idx, sec in enumerate(sections):
+        if idx < skip_header_sections:
+            _clear_section_header_footer(sec)
+        else:
+            _add_header(sec, spec)
 
     if len(sections) >= 2 and spec.use_roman_front_matter:
         _set_page_number_roman(sections[0])
@@ -1191,7 +1636,10 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
     print("   - 一级标题：应用 'Heading 1' 样式（黑体小三号，居中），自动分页")
     print("   - 二级标题：应用 'Heading 2' 样式（黑体四号，靠左）")
     print("   - 三级标题：应用 'Heading 3' 样式（黑体小四号，靠左）")
-    print("   - 正文：宋体小四号，1.5倍行距，首行缩进2字符")
+    if spec.spacing.body_line_spacing_rule == "exact":
+        print(f"   - 正文：宋体小四号，固定值{spec.spacing.body_line_spacing}磅，首行缩进2字符")
+    else:
+        print(f"   - 正文：宋体小四号，{spec.spacing.body_line_spacing}倍行距，首行缩进2字符")
     print("   - 参考文献：悬挂缩进格式")
     print("\n提示：在 Word 中可以通过'样式'面板直接修改各级标题样式")
 

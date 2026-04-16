@@ -46,6 +46,7 @@ const selectedWordFile = ref<File | null>(null);
 const markdownEditorRef = ref<any>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const projectInputRef = ref<HTMLInputElement | null>(null);
+const projectFolderInputRef = ref<HTMLInputElement | null>(null);
 
 const markdownEmpty = computed(() => documentStore.markdown.trim().length === 0);
 const wordMissing = computed(() => !selectedWordFile.value);
@@ -172,6 +173,91 @@ function triggerImagePicker() {
 
 function triggerProjectPicker() {
   projectInputRef.value?.click();
+}
+
+function triggerProjectFolderPicker() {
+  projectFolderInputRef.value?.click();
+}
+
+function normalizeRelativePath(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/");
+  const normalized: string[] = [];
+
+  for (const part of parts) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+
+  return normalized.join("/");
+}
+
+function getRootRelativePath(file: File): string {
+  const rawPath = file.webkitRelativePath || file.name;
+  const segments = rawPath.replace(/\\/g, "/").split("/");
+  if (segments.length > 1) {
+    return normalizeRelativePath(segments.slice(1).join("/"));
+  }
+  return normalizeRelativePath(rawPath);
+}
+
+function getDirectoryPath(path: string): string {
+  const normalized = normalizeRelativePath(path);
+  const segments = normalized ? normalized.split("/") : [];
+  segments.pop();
+  return segments.join("/");
+}
+
+function resolveMarkdownAssetPath(markdownPath: string, targetPath: string): string {
+  const baseDir = getDirectoryPath(markdownPath);
+  const baseSegments = baseDir ? baseDir.split("/") : [];
+  const targetSegments = targetPath.replace(/\\/g, "/").split("/");
+  const resolved = [...baseSegments];
+
+  for (const segment of targetSegments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      resolved.pop();
+      continue;
+    }
+    resolved.push(segment);
+  }
+
+  return normalizeRelativePath(resolved.join("/"));
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
+}
+
+function rewriteMarkdownImageTargets(
+  markdown: string,
+  markdownRelativePath: string,
+  assetMap: Map<string, ProjectAssetItem>,
+): string {
+  return markdown.replace(/!\[(.*?)\]\((.*?)\)/g, (match, altText: string, rawTarget: string) => {
+    const cleanedTarget = rawTarget.trim().replace(/^<|>$/g, "").replace(/^["']|["']$/g, "");
+    if (
+      /^(?:https?:\/\/|data:|\/api\/assets\/)/i.test(cleanedTarget) ||
+      cleanedTarget.startsWith("#")
+    ) {
+      return match;
+    }
+
+    const resolvedPath = resolveMarkdownAssetPath(markdownRelativePath, cleanedTarget);
+    const asset = assetMap.get(resolvedPath);
+    if (!asset) {
+      return match;
+    }
+    return `![${altText}](${asset.url})`;
+  });
 }
 
 function handleSelectPaper() {
@@ -331,6 +417,58 @@ async function handleProjectChange(event: Event) {
   }
 }
 
+async function handleProjectFolderChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const files = Array.from(target.files ?? []);
+  if (files.length === 0) {
+    return;
+  }
+
+  importProjectLoading.value = true;
+  try {
+    const sortedFiles = [...files].sort((left, right) =>
+      getRootRelativePath(left).localeCompare(getRootRelativePath(right), "zh-CN"),
+    );
+    const markdownFiles = sortedFiles.filter((file) => file.name.toLowerCase().endsWith(".md"));
+    if (markdownFiles.length === 0) {
+      Message.warning("所选文件夹中未找到 Markdown 文件。");
+      return;
+    }
+
+    const markdownFile = markdownFiles[0];
+    const rootName = (markdownFile.webkitRelativePath || markdownFile.name).split("/")[0] || "paper-project";
+    const markdownRelativePath = getRootRelativePath(markdownFile);
+    const imageFiles = sortedFiles.filter((file) => isImageFile(file));
+    const uploadedAssets: ProjectAssetItem[] = [];
+    const assetMap = new Map<string, ProjectAssetItem>();
+
+    for (const file of imageFiles) {
+      const asset = await uploadImageAsset(file);
+      uploadedAssets.push(asset);
+      assetMap.set(getRootRelativePath(file), asset);
+    }
+
+    let markdownContent = await markdownFile.text();
+    markdownContent = rewriteMarkdownImageTargets(markdownContent, markdownRelativePath, assetMap);
+
+    documentStore.setProjectName(rootName.replace(/\.[^.]+$/, "") || "paper-project");
+    documentStore.setMarkdown(markdownContent);
+    documentStore.setAssets(uploadedAssets);
+    selectedAssetId.value = uploadedAssets[0]?.asset_id ?? null;
+
+    if (markdownFiles.length > 1) {
+      Message.success(`文件夹已导入，已使用 ${markdownFile.name}，共导入 ${uploadedAssets.length} 张图片。`);
+    } else {
+      Message.success(`文件夹已导入，共导入 ${uploadedAssets.length} 张图片。`);
+    }
+  } catch (error) {
+    Message.error(readApiError(error));
+  } finally {
+    importProjectLoading.value = false;
+    target.value = "";
+  }
+}
+
 function removeAssetMarkdownReferences(asset: ProjectAssetItem) {
   const escapedUrl = asset.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const next = documentStore.markdown
@@ -427,12 +565,25 @@ function handleAssetInsert(asset: ProjectAssetItem) {
         />
 
         <a-button size="small" :loading="importProjectLoading" @click="triggerProjectPicker">
-          导入项目
+          导入压缩包
         </a-button>
         <input ref="projectInputRef" class="file-input" type="file" accept=".zip" @change="handleProjectChange" />
 
+        <a-button size="small" :loading="importProjectLoading" @click="triggerProjectFolderPicker">
+          导入文件夹
+        </a-button>
+        <input
+          ref="projectFolderInputRef"
+          class="file-input"
+          type="file"
+          multiple
+          webkitdirectory
+          directory
+          @change="handleProjectFolderChange"
+        />
+
         <label class="file-chip" for="word-file-input">
-          <span>{{ selectedWordFile?.name ?? "选择文件" }}</span>
+          <span>{{ selectedWordFile?.name ?? "选择 Word(.doc/.docx)" }}</span>
         </label>
         <input id="word-file-input" class="file-input" type="file" accept=".doc,.docx" @change="handleWordChange" />
 
