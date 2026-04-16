@@ -30,4 +30,5 @@ def list_supported_schools() -> tuple[str, ...]:
 
 
 # 导入各学校模块以触发注册
+from app.services.formatters.schools import sdfmu as _sdfmu  # noqa: F401, E402
 from app.services.formatters.schools import yzu as _yzu  # noqa: F401, E402

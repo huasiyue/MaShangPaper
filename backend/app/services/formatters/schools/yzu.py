@@ -16,6 +16,7 @@ from app.services.formatters.report import FormatReport
 from app.services.formatters.spec import (
     AbstractRules,
     CaptionRules,
+    CoverPageRules,
     FontAssignments,
     FontSizes,
     HeadingNumbering,
@@ -72,6 +73,7 @@ def create_yzu_spec(thesis_type: str) -> ThesisFormatSpec:
             HeadingRule(alignment="left", font="黑体", size=12, bold=True),    # 4: H4
         ),
         heading_numbering=HeadingNumbering(
+            style="chinese",
             level_1=r"^第[一二三四五六七八九十百]+章",
             level_2=r"^[一二三四五六七八九十百]+、",
             level_3=r"^（[一二三四五六七八九十百]+）",
@@ -98,6 +100,28 @@ def create_yzu_spec(thesis_type: str) -> ThesisFormatSpec:
             pattern=r"^#?\s*(图|表)\s*\d+[-\.]\d+",
             alignment="center", font_size=10.5,
             line_spacing=1.0, space_before=6, space_after=6,
+        ),
+        cover=CoverPageRules(
+            university_name="扬州大学",
+            thesis_type_label="本科毕业论文（设计）",
+            fields=(
+                ("学院", "________"),
+                ("专  业", "________"),
+                ("班  级", "________"),
+                ("学生姓名", "________"),
+                ("学  号", "________"),
+                ("指导教师", "________"),
+                ("完成日期", "________"),
+            ),
+            university_font="华文行楷",
+            university_size=26,
+            thesis_type_font="宋体",
+            thesis_type_size=26,
+            title_font="宋体",
+            title_size=22,
+            field_label_font="宋体",
+            field_label_size=15,
+            underline_width=6.0,
         ),
         special_titles=("摘要", "abstract", "参考文献", "references", "目录", "contents"),
         body_first_line_indent=0.74,
@@ -130,6 +154,7 @@ class YZUFormatter(BaseFormatter):
         return Path(output_path), build_review_response(report, report_text, self.school_id, thesis_type)
 
 
-# 注册 YZU 和 SDFMU_AI（后者暂用 YZU 规格）
+# 注册 YZU
 register_formatter("yzu", YZUFormatter)
+# sdfmu_ai 使用 YZU 格式（暂无独立规格）
 register_formatter("sdfmu_ai", YZUFormatter)

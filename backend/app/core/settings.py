@@ -7,9 +7,9 @@ TEMP_DIR = BACKEND_DIR / "temp"
 ASSETS_DIR = TEMP_DIR / "assets"
 DOCS_DATA_DIR = PROJECT_ROOT / "docs" / "data"
 
-DEFAULT_SCHOOL_ID = "yzu"
+DEFAULT_SCHOOL_ID = "sdfmu"
 DEFAULT_THESIS_TYPE = "thesis"
-SUPPORTED_SCHOOLS = ("yzu", "sdfmu_ai")
+SUPPORTED_SCHOOLS = ("sdfmu", "yzu", "sdfmu_ai")
 
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)

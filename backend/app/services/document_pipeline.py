@@ -68,7 +68,10 @@ class DocumentPipeline:
         token = uuid4().hex
         markdown_path = TEMP_DIR / f"{token}_{normalized_type}.md"
         output_path = TEMP_DIR / f"{token}_{normalized_type}.docx"
-        return self.generator.generate(content=content, markdown_path=markdown_path, output_path=output_path)
+        return self.generator.generate(
+            content=content, markdown_path=markdown_path, output_path=output_path,
+            school_id=school_id, thesis_type=normalized_type,
+        )
 
     def review_document(
         self,

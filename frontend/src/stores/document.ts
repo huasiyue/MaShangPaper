@@ -27,7 +27,7 @@ export const useDocumentStore = defineStore("document", {
   state: (): DocumentState => ({
     projectName: "paper-project",
     markdown: DEFAULT_MARKDOWN,
-    schoolId: "yzu",
+    schoolId: "sdfmu",
     thesisType: "thesis",
     assets: [],
     reviewResult: null,

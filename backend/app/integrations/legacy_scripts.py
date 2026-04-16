@@ -25,6 +25,7 @@ def get_convert_module():
     return _load_module("word_converter", BACKEND_DIR / "app" / "services" / "word_converter.py")
 
 
-def convert_markdown_to_word(markdown_path: Path, output_path: Path) -> None:
+def convert_markdown_to_word(markdown_path: Path, output_path: Path,
+                            school_id: str = "yzu", thesis_type: str = "thesis") -> None:
     module = get_convert_module()
-    module.convert_markdown_to_word(str(markdown_path), str(output_path))
+    module.convert_markdown_to_word(str(markdown_path), str(output_path), school_id, thesis_type)

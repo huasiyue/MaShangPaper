@@ -1,7 +1,7 @@
 import { http } from "./http";
 
 
-export type SchoolId = "yzu" | "sdfmu_ai";
+export type SchoolId = "sdfmu" | "yzu" | "sdfmu_ai";
 export type ThesisType = "thesis" | "design_report";
 
 export interface AssetUploadResponse {

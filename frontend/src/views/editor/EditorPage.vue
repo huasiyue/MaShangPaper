@@ -3,6 +3,7 @@ import { AxiosError } from "axios";
 import { marked } from "marked";
 import { computed, nextTick, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
+import "katex/dist/katex.min.css";
 
 import {
   convertMarkdown,
@@ -22,6 +23,7 @@ import ProjectAssets from "@/components/editor/ProjectAssets.vue";
 import SchoolSelector from "@/components/editor/SchoolSelector.vue";
 import ReviewResultTable from "@/components/review/ReviewResultTable.vue";
 import { useDocumentStore } from "@/stores/document";
+import { extractMath, restoreMath } from "@/utils/markdown-math";
 
 
 marked.setOptions({
@@ -115,7 +117,11 @@ function insertSnippet(snippet: string) {
 }
 
 function renderMarkdownWithImageMeta(markdown: string): string {
-  const normalized = markdown.replace(
+  // Step 1: extract math ($...$ / $$...$$) into safe placeholders
+  const { text: mathStripped, blocks } = extractMath(markdown);
+
+  // Step 2: handle image metadata syntax
+  const normalized = mathStripped.replace(
     /!\[(.*?)\]\((.*?)\)/g,
     (_match, rawAlt: string, rawUrl: string) => {
       const parts = rawAlt
@@ -147,7 +153,11 @@ function renderMarkdownWithImageMeta(markdown: string): string {
     },
   );
 
-  return marked.parse(normalized) as string;
+  // Step 3: parse with marked
+  const html = marked.parse(normalized) as string;
+
+  // Step 4: restore math blocks with KaTeX-rendered HTML
+  return restoreMath(html, blocks);
 }
 
 const previewHtml = computed(() => renderMarkdownWithImageMeta(documentStore.markdown));
@@ -637,6 +647,21 @@ function handleAssetInsert(asset: ProjectAssetItem) {
 .markdown-preview :deep(table) {
   width: 100%;
   border-collapse: collapse;
+}
+
+.markdown-preview :deep(.katex-display) {
+  margin: 16px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
+
+.markdown-preview :deep(.msp-math-error) {
+  color: var(--msp-text-muted);
+  background: rgba(255, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
 }
 
 .markdown-preview :deep(th),

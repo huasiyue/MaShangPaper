@@ -61,6 +61,7 @@ class HeadingRule:
 
 @dataclass(frozen=True)
 class HeadingNumbering:
+    style: str              # "chinese" | "arabic" — 决定标题编号生成格式
     level_1: str            # 正则，如 r'^第[一二三四五六七八九十百]+章'
     level_2: str
     level_3: str
@@ -110,6 +111,22 @@ class CaptionRules:
 
 
 @dataclass(frozen=True)
+class CoverPageRules:
+    university_name: str            # 学校全称
+    thesis_type_label: str          # 如 "本科毕业论文（设计）"
+    fields: tuple[tuple[str, str], ...]  # ((标签, 占位文字), ...) 如 (("学院", "______"), ...)
+    university_font: str
+    university_size: float          # pt
+    thesis_type_font: str
+    thesis_type_size: float
+    title_font: str
+    title_size: float
+    field_label_font: str
+    field_label_size: float
+    underline_width: float          # cm 下划线长度
+
+
+@dataclass(frozen=True)
 class ThesisFormatSpec:
     school_id: str
     school_name: str
@@ -124,5 +141,6 @@ class ThesisFormatSpec:
     references: ReferenceRules
     signature: SignatureRules
     caption: CaptionRules
+    cover: CoverPageRules
     special_titles: tuple[str, ...]
     body_first_line_indent: float  # cm
