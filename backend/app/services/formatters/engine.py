@@ -170,15 +170,16 @@ class ThesisFormatEngine:
 
     def _apply_header_footer(self, doc: Document, report: FormatReport) -> None:
         skip_header_sections = 2 if self._is_sdfmu_template() and len(doc.sections) >= 3 else 0
+        skip_footer_sections = 3 if self._is_sdfmu_template() and len(doc.sections) >= 4 else skip_header_sections
         for idx, section in enumerate(doc.sections):
             # 页眉
             header = section.header
             h_para = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             h_para.clear()
+            footer = section.footer
+            f_para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            f_para.clear()
             if idx < skip_header_sections:
-                footer = section.footer
-                f_para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-                f_para.clear()
                 continue
             h_para.text = self.spec.header_text
             h_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT if self._is_sdfmu_template() else WD_ALIGN_PARAGRAPH.CENTER
@@ -207,11 +208,9 @@ class ThesisFormatEngine:
                 p_pr.append(p_bdr)
 
             # 页脚（页码）
-            footer = section.footer
-            f_para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-            f_para.clear()
-            f_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            self._add_page_number(f_para)
+            if idx >= skip_footer_sections:
+                f_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                self._add_page_number(f_para)
 
         report.add_issue(FormatIssueLevel.INFO, "页眉页脚", "已添加页眉和页码", "")
 

@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import argparse
+from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
 from docx import Document
@@ -152,6 +153,14 @@ def _resolve_front_title_size(spec: ThesisFormatSpec):
     return Pt(max(spec.font_sizes.abstract_label, spec.font_sizes.heading_1))
 
 
+def _alignment_to_anchor(value) -> str:
+    if value == WD_ALIGN_PARAGRAPH.LEFT:
+        return "left"
+    if value == WD_ALIGN_PARAGRAPH.RIGHT:
+        return "right"
+    return "center"
+
+
 def _set_cell_borders(cell, top: str = "single", bottom: str = "single", left: str = "single", right: str = "single",
                       top_size: str = "6", bottom_size: str = "6", left_size: str = "6", right_size: str = "6",
                       color: str = "BFBFBF"):
@@ -191,6 +200,67 @@ def _try_add_cover_logo(doc, spec: ThesisFormatSpec):
         run.add_picture(str(logo_path), width=Cm(cv.logo_width))
     except Exception:
         return
+
+
+def _convert_inline_shape_to_top_bottom_wrap(shape, alignment: str = "center"):
+    inline = shape._inline
+    inline_children = list(inline)
+    anchor = OxmlElement("wp:anchor")
+    anchor.set("simplePos", "0")
+    anchor.set("relativeHeight", "0")
+    anchor.set("behindDoc", "0")
+    anchor.set("locked", "0")
+    anchor.set("layoutInCell", "1")
+    anchor.set("allowOverlap", "0")
+    anchor.set("distT", "0")
+    anchor.set("distB", "0")
+    anchor.set("distL", "0")
+    anchor.set("distR", "0")
+
+    simple_pos = OxmlElement("wp:simplePos")
+    simple_pos.set("x", "0")
+    simple_pos.set("y", "0")
+    anchor.append(simple_pos)
+
+    position_h = OxmlElement("wp:positionH")
+    position_h.set("relativeFrom", "margin")
+    align_h = OxmlElement("wp:align")
+    align_h.text = alignment
+    position_h.append(align_h)
+    anchor.append(position_h)
+
+    position_v = OxmlElement("wp:positionV")
+    position_v.set("relativeFrom", "paragraph")
+    pos_offset_v = OxmlElement("wp:posOffset")
+    pos_offset_v.text = "0"
+    position_v.append(pos_offset_v)
+    anchor.append(position_v)
+
+    anchor.append(deepcopy(inline.extent))
+
+    effect_extent = OxmlElement("wp:effectExtent")
+    effect_extent.set("l", "0")
+    effect_extent.set("t", "0")
+    effect_extent.set("r", "0")
+    effect_extent.set("b", "0")
+    anchor.append(effect_extent)
+
+    anchor.append(OxmlElement("wp:wrapTopAndBottom"))
+    anchor.append(deepcopy(inline.docPr))
+    if len(inline_children) >= 3:
+        anchor.append(deepcopy(inline_children[2]))
+    anchor.append(deepcopy(inline.graphic))
+
+    drawing = inline.getparent()
+    drawing.remove(inline)
+    drawing.append(anchor)
+
+
+def _add_top_bottom_wrapped_picture(run, image_source, width, alignment, image_name: str = "Picture"):
+    shape = run.add_picture(image_source, width=width)
+    # 同一文档中可能会插入多张图片，这里复用 python-docx 分配的 docPr 信息，再改为浮动锚点。
+    _convert_inline_shape_to_top_bottom_wrap(shape, alignment=_alignment_to_anchor(alignment))
+    return shape
 
 
 def _add_block_equation(doc, latex_str, eq_label: str = ""):
@@ -1061,6 +1131,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
     suppress_next_page_break = False
     cover_generated = False
     declaration_generated = False
+    body_section_started = False
     
     i = 0
     while i < len(lines):
@@ -1153,7 +1224,13 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                     image_path = (markdown_base_dir / image_path).resolve()
                 if image_path.exists():
                     try:
-                        run_img.add_picture(str(image_path), width=image_width)
+                        _add_top_bottom_wrapped_picture(
+                            run_img,
+                            str(image_path),
+                            width=image_width,
+                            alignment=image_alignment,
+                            image_name=image_path.name,
+                        )
                     except Exception:
                         # python-docx 可能不支持某些 JPEG，用 PIL 转为 PNG 后插入
                         try:
@@ -1163,7 +1240,13 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                             buf = io.BytesIO()
                             img.save(buf, format='PNG')
                             buf.seek(0)
-                            run_img.add_picture(buf, width=image_width)
+                            _add_top_bottom_wrapped_picture(
+                                run_img,
+                                buf,
+                                width=image_width,
+                                alignment=image_alignment,
+                                image_name=image_path.stem + '.png',
+                            )
                         except Exception:
                             run_img = para_img.add_run(f"[插图格式不支持: {image_target}]")
                             run_img.font.color.rgb = RGBColor(128, 128, 128)
@@ -1297,6 +1380,10 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 if is_special_chapter and len(level_marks) <= 2:
                     in_abstract = False
                     in_references = False
+                    if not body_section_started:
+                        _add_section_break(doc)
+                        body_section_started = True
+                        suppress_next_page_break = True
                     if suppress_next_page_break:
                         suppress_next_page_break = False
                     else:
@@ -1332,6 +1419,11 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                 level = len(level_marks)
                 # 兼容使用者错误的一阶标注习惯
                 if level == 1 or (level == 2 and raw_title.startswith('第一章')):
+                    new_body_section = False
+                    if not body_section_started:
+                        _add_section_break(doc)
+                        body_section_started = True
+                        new_body_section = True
                     # ── 前言/正文分节 ──
                     if in_front_matter and spec.use_roman_front_matter:
                         _add_section_break(doc)
@@ -1350,7 +1442,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                     else:
                         heading_text = f"第一章 {title_clean}" if chap_num == 1 else f"第{int_to_chinese(chap_num)}章 {title_clean}"
                     para = doc.add_paragraph(heading_text, style='Heading 1')
-                    para.paragraph_format.page_break_before = True
+                    para.paragraph_format.page_break_before = not new_body_section
                 elif level == 2:
                     sec_num += 1
                     subsec_num = 0
@@ -1606,11 +1698,10 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
 
     # ── 后处理：设置页眉 + 页码 ──
     sections = doc.sections
-    skip_header_sections = 0
-    if cover_generated:
-        skip_header_sections += 1
-    if declaration_generated:
-        skip_header_sections += 1
+    skip_header_sections = int(cover_generated) + int(declaration_generated)
+    body_start_index = None
+    if body_section_started:
+        body_start_index = skip_header_sections + 1
 
     for idx, sec in enumerate(sections):
         if idx < skip_header_sections:
@@ -1618,7 +1709,17 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
         else:
             _add_header(sec, spec)
 
-    if len(sections) >= 2 and spec.use_roman_front_matter:
+    if body_start_index is not None and body_start_index < len(sections):
+        for idx in range(skip_header_sections, body_start_index):
+            sec = sections[idx]
+            footer = sec.footer
+            footer.is_linked_to_previous = False
+            for paragraph in footer.paragraphs:
+                paragraph.clear()
+        body_sec = sections[body_start_index]
+        _set_page_number_arabic(body_sec)
+        _add_page_number_to_footer(body_sec, spec)
+    elif len(sections) >= 2 and spec.use_roman_front_matter:
         _set_page_number_roman(sections[0])
         _add_page_number_to_footer(sections[0], spec)
         _set_page_number_arabic(sections[1])
