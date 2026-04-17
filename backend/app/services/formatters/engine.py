@@ -298,6 +298,7 @@ class ThesisFormatEngine:
 
     def _format_body(self, para) -> None:
         self._apply_word_style(para, "Normal")
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         para.paragraph_format.line_spacing = self._resolve_body_line_spacing()
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)

@@ -948,6 +948,7 @@ def setup_styles(doc, spec: ThesisFormatSpec):
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(0)
     style.paragraph_format.first_line_indent = _resolve_body_first_line_indent(spec)
+    style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     # 设置 Heading 1 样式（一级标题）
     heading1 = doc.styles['Heading 1']
@@ -1399,14 +1400,16 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
                     i += 1
                     continue
                 
-                # 论文题目（第一个一级标题，且不是"摘要"、"目录"等特殊标题）
+                # 论文题目（第一个一级标题，且不是"摘要"、"目录"等特殊标题，也不是章节标题）
                 if first_heading1 and title_clean and len(level_marks) <= 2:
                     # 检查是否是特殊标题（摘要、目录等），这些不应该作为论文题目
                     special_titles = ['摘要', 'abstract', '目录', 'contents', '参考文献', 'references']
                     normalized_title = _normalize_title_token(title_clean)
                     is_special = normalized_title in {_normalize_title_token(item) for item in special_titles}
-                    
-                    if not is_special:
+                    # 检查是否已经是章节标题（如"第一章 绪论"、"第1章 绪论"），如果是则不应作为论文题目
+                    is_chapter_heading = bool(re.match(r'^第[一二三四五六七八九十百\d]+章', raw_title))
+
+                    if not is_special and not is_chapter_heading:
                         in_abstract = False
                         # 使用论文标题样式（黑体小二）
                         para = doc.add_paragraph(title_clean, style='论文标题')
