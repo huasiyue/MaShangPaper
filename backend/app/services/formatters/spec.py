@@ -137,6 +137,13 @@ class CoverPageRules:
     declaration_date_placeholder: str = ""
     logo_path: str = ""
     logo_width: float = 0.0
+    logo_height: float = 0.0
+    info_table_left_width: float = 0.0
+    info_table_right_width: float = 0.0
+    info_table_row_height: float = 0.0
+    title_table_left_width: float = 0.0
+    title_table_right_width: float = 0.0
+    title_table_row_height: float = 0.0
 
 
 @dataclass(frozen=True)

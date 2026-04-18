@@ -112,11 +112,10 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
                 ("学生姓名", "________"),
                 ("指导教师", "________"),
                 ("企业导师", "（校企合作填写，普通本科删除）"),
-                ("完成日期", "________"),
             ),
-            university_font="黑体",
+            university_font="华文中宋",
             university_size=24,
-            thesis_type_font="黑体",
+            thesis_type_font="华文中宋",
             thesis_type_size=24,
             title_font="黑体",
             title_size=24,
@@ -130,7 +129,14 @@ def create_sdfmu_spec(thesis_type: str) -> ThesisFormatSpec:
             declaration_fields=("专业", "班级", "签名"),
             declaration_date_placeholder="____年__月__日",
             logo_path=str(logo_path),
-            logo_width=5.2,
+            logo_width=5.99,
+            logo_height=4.99,
+            info_table_left_width=2.85,
+            info_table_right_width=8.78,
+            info_table_row_height=1.10,
+            title_table_left_width=3.44,
+            title_table_right_width=13.54,
+            title_table_row_height=2.20,
         ),
         special_titles=("摘要", "abstract", "参考文献", "references", "目录", "contents", "前言", "结论", "致谢", "附录", "文献综述"),
         body_first_line_indent=0.74,
@@ -175,6 +181,4 @@ class SDFMUFormatter(BaseFormatter):
 
 # 注册学校
 register_formatter("sdfmu", SDFMUFormatter)
-register_formatter("sdfmu_ai", SDFMUFormatter)
 register_spec_factory("sdfmu", create_sdfmu_spec)
-register_spec_factory("sdfmu_ai", create_sdfmu_spec)

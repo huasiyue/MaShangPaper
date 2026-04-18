@@ -1,8 +1,8 @@
 import { http } from "./http";
 
 
-export type SchoolId = "sdfmu" | "yzu" | "sdfmu_ai";
-export type ThesisType = "thesis" | "design_report";
+export type SchoolId = "sdfmu";
+export type ThesisType = "thesis";
 
 export interface AssetUploadResponse {
   asset_id: string;
@@ -45,13 +45,13 @@ export interface ReviewResponse {
 
 export async function convertMarkdown(input: {
   content: string;
-  schoolId: SchoolId;
-  thesisType: ThesisType;
+  schoolId?: SchoolId;
+  thesisType?: ThesisType;
 }): Promise<Blob> {
   const formData = new FormData();
   formData.append("content", input.content);
-  formData.append("school_id", input.schoolId);
-  formData.append("thesis_type", input.thesisType);
+  formData.append("school_id", input.schoolId ?? "sdfmu");
+  formData.append("thesis_type", input.thesisType ?? "thesis");
 
   const response = await http.post("/api/documents/convert", formData, {
     responseType: "blob",
@@ -62,13 +62,13 @@ export async function convertMarkdown(input: {
 
 export async function reviewWordDocument(input: {
   file: File;
-  schoolId: SchoolId;
-  thesisType: ThesisType;
+  schoolId?: SchoolId;
+  thesisType?: ThesisType;
 }): Promise<ReviewResponse> {
   const formData = new FormData();
   formData.append("file", input.file);
-  formData.append("school_id", input.schoolId);
-  formData.append("thesis_type", input.thesisType);
+  formData.append("school_id", input.schoolId ?? "sdfmu");
+  formData.append("thesis_type", input.thesisType ?? "thesis");
 
   const response = await http.post<ReviewResponse>("/api/documents/review", formData);
   return response.data;
@@ -76,13 +76,13 @@ export async function reviewWordDocument(input: {
 
 export async function formatWordDocument(input: {
   file: File;
-  schoolId: SchoolId;
-  thesisType: ThesisType;
+  schoolId?: SchoolId;
+  thesisType?: ThesisType;
 }): Promise<Blob> {
   const formData = new FormData();
   formData.append("file", input.file);
-  formData.append("school_id", input.schoolId);
-  formData.append("thesis_type", input.thesisType);
+  formData.append("school_id", input.schoolId ?? "sdfmu");
+  formData.append("thesis_type", input.thesisType ?? "thesis");
 
   const response = await http.post("/api/documents/format", formData, {
     responseType: "blob",
@@ -112,14 +112,14 @@ export async function deleteImageAsset(assetId: string): Promise<void> {
 
 export async function exportProjectPackage(input: {
   content: string;
-  schoolId: SchoolId;
-  thesisType: ThesisType;
+  schoolId?: SchoolId;
+  thesisType?: ThesisType;
   projectName: string;
 }): Promise<Blob> {
   const formData = new FormData();
   formData.append("content", input.content);
-  formData.append("school_id", input.schoolId);
-  formData.append("thesis_type", input.thesisType);
+  formData.append("school_id", input.schoolId ?? "sdfmu");
+  formData.append("thesis_type", input.thesisType ?? "thesis");
   formData.append("project_name", input.projectName);
 
   const response = await http.post("/api/documents/project/export", formData, {

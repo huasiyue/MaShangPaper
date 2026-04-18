@@ -9,7 +9,7 @@ DOCS_DATA_DIR = PROJECT_ROOT / "docs" / "data"
 
 DEFAULT_SCHOOL_ID = "sdfmu"
 DEFAULT_THESIS_TYPE = "thesis"
-SUPPORTED_SCHOOLS = ("sdfmu", "yzu", "sdfmu_ai")
+SUPPORTED_SCHOOLS = ("sdfmu",)
 
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)

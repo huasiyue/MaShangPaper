@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, watch, type Ref } from "vue";
 
-import type { ProjectAssetItem, ReviewResponse, SchoolId, ThesisType } from "@/api/documents";
+import type { ProjectAssetItem } from "@/api/documents";
 
 const STORAGE_KEY = "mashangpaper-document-store";
 
@@ -23,10 +23,7 @@ function loadState() {
       return {
         projectName: parsed.projectName ?? "paper-project",
         markdown: parsed.markdown ?? DEFAULT_MARKDOWN,
-        schoolId: parsed.schoolId ?? "sdfmu",
-        thesisType: parsed.thesisType ?? "thesis",
         assets: Array.isArray(parsed.assets) ? parsed.assets : [],
-        reviewResult: parsed.reviewResult ?? null,
       };
     }
   } catch {
@@ -38,10 +35,7 @@ function loadState() {
 function saveState(state: {
   projectName: string;
   markdown: string;
-  schoolId: SchoolId;
-  thesisType: ThesisType;
   assets: ProjectAssetItem[];
-  reviewResult: ReviewResponse | null;
 }) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -55,21 +49,15 @@ export const useDocumentStore = defineStore("document", () => {
 
   const projectName: Ref<string> = ref(saved?.projectName ?? "paper-project");
   const markdown: Ref<string> = ref(saved?.markdown ?? DEFAULT_MARKDOWN);
-  const schoolId: Ref<SchoolId> = ref(saved?.schoolId ?? "sdfmu");
-  const thesisType: Ref<ThesisType> = ref(saved?.thesisType ?? "thesis");
   const assets: Ref<ProjectAssetItem[]> = ref(saved?.assets ?? []);
-  const reviewResult: Ref<ReviewResponse | null> = ref(saved?.reviewResult ?? null);
 
   watch(
-    [projectName, markdown, schoolId, thesisType, assets, reviewResult],
+    [projectName, markdown, assets],
     () => {
       saveState({
         projectName: projectName.value,
         markdown: markdown.value,
-        schoolId: schoolId.value,
-        thesisType: thesisType.value,
         assets: assets.value,
-        reviewResult: reviewResult.value,
       });
     },
     { deep: true }
@@ -80,12 +68,6 @@ export const useDocumentStore = defineStore("document", () => {
   }
   function setMarkdown(value: string) {
     markdown.value = value;
-  }
-  function setSchoolId(value: SchoolId) {
-    schoolId.value = value;
-  }
-  function setThesisType(value: ThesisType) {
-    thesisType.value = value;
   }
   function setAssets(value: ProjectAssetItem[]) {
     assets.value = value;
@@ -103,25 +85,15 @@ export const useDocumentStore = defineStore("document", () => {
   function removeAsset(assetId: string) {
     assets.value = assets.value.filter((item) => item.asset_id !== assetId);
   }
-  function setReviewResult(value: ReviewResponse | null) {
-    reviewResult.value = value;
-  }
 
   return {
     projectName,
     markdown,
-    schoolId,
-    thesisType,
     assets,
-    reviewResult,
     setProjectName,
     setMarkdown,
-    setSchoolId,
-    setThesisType,
     setAssets,
     upsertAsset,
     removeAsset,
-    setReviewResult,
   };
 });
-

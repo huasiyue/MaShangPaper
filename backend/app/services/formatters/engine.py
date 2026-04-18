@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 论文格式化引擎（规格驱动）。
-从 docs/data/yzu_thesis_formatter.py 参考文件移植，所有格式参数从 ThesisFormatSpec 读取。
+所有格式参数从 ThesisFormatSpec 读取。
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class ThesisFormatEngine:
         return re.sub(r"\s+", "", text).strip().lower()
 
     def _is_sdfmu_template(self) -> bool:
-        return self.spec.school_id in {"sdfmu", "sdfmu_ai"}
+        return self.spec.school_id == "sdfmu"
 
     def _get_display_title(self, text: str) -> str:
         normalized = self._normalize_title_token(text)
@@ -71,7 +71,7 @@ class ThesisFormatEngine:
         return Pt(self.spec.font_sizes.body * 2)
 
     def _resolve_front_title_size(self):
-        if self.spec.school_id in {"sdfmu", "sdfmu_ai"}:
+        if self.spec.school_id == "sdfmu":
             return Pt(self.spec.font_sizes.title)
         return Pt(max(self.spec.font_sizes.abstract_label, self.spec.font_sizes.heading_1))
 
@@ -198,14 +198,15 @@ class ThesisFormatEngine:
                 for child in list(p_pr):
                     if child.tag.endswith("pBdr"):
                         p_pr.remove(child)
-                p_bdr = OxmlElement("w:pBdr")
-                bottom = OxmlElement("w:bottom")
-                bottom.set(qn("w:val"), "single")
-                bottom.set(qn("w:sz"), "6")
-                bottom.set(qn("w:space"), "0")
-                bottom.set(qn("w:color"), "000000")
-                p_bdr.append(bottom)
-                p_pr.append(p_bdr)
+                if idx != skip_header_sections or skip_footer_sections == skip_header_sections:
+                    p_bdr = OxmlElement("w:pBdr")
+                    bottom = OxmlElement("w:bottom")
+                    bottom.set(qn("w:val"), "single")
+                    bottom.set(qn("w:sz"), "6")
+                    bottom.set(qn("w:space"), "0")
+                    bottom.set(qn("w:color"), "000000")
+                    p_bdr.append(bottom)
+                    p_pr.append(p_bdr)
 
             # 页脚（页码）
             if idx >= skip_footer_sections:

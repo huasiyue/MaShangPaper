@@ -93,9 +93,7 @@ class DocumentPipeline:
         return get_formatter_class(school_id)()
 
     def _normalize_thesis_type(self, thesis_type: str) -> str:
-        if thesis_type in {"design", "report"}:
-            return "design_report"
-        return thesis_type if thesis_type else DEFAULT_THESIS_TYPE
+        return DEFAULT_THESIS_TYPE
 
     def _safe_name(self, name: str) -> str:
         stem = Path(name).name or "document"

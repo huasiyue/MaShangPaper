@@ -15,8 +15,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Pt, Cm, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.oxml.ns import qn, nsdecls
 from docx.oxml import OxmlElement, parse_xml
 from app.services.math_utils import latex_to_omml
@@ -62,7 +63,6 @@ _COVER_FIELD_ALIASES = {
     '企业导师': ('企业导师',),
     '完成日期': ('完成日期', '日期'),
 }
-
 
 def _get_display_title(spec: ThesisFormatSpec, text: str) -> str:
     normalized = _normalize_title_token(text)
@@ -148,9 +148,21 @@ def _resolve_body_first_line_indent(spec: ThesisFormatSpec):
 
 
 def _resolve_front_title_size(spec: ThesisFormatSpec):
-    if spec.school_id in {"sdfmu", "sdfmu_ai"}:
+    if spec.school_id == "sdfmu":
         return Pt(spec.font_sizes.title)
     return Pt(max(spec.font_sizes.abstract_label, spec.font_sizes.heading_1))
+
+
+def _apply_page_layout_to_sections(doc, spec: ThesisFormatSpec):
+    pg = spec.page_layout
+    for section in doc.sections:
+        section.top_margin = Cm(pg.top_margin)
+        section.bottom_margin = Cm(pg.bottom_margin)
+        section.left_margin = Cm(pg.left_margin)
+        section.right_margin = Cm(pg.right_margin)
+        section.gutter = Cm(pg.gutter)
+        section.header_distance = Cm(pg.header_distance)
+        section.footer_distance = Cm(pg.footer_distance)
 
 
 def _alignment_to_anchor(value) -> str:
@@ -184,6 +196,30 @@ def _set_cell_borders(cell, top: str = "single", bottom: str = "single", left: s
     tc_pr.append(borders)
 
 
+def _set_table_font(paragraph, font_name: str, font_size: float, bold: bool = False):
+    paragraph.paragraph_format.space_before = Pt(4)
+    paragraph.paragraph_format.space_after = Pt(4)
+    for run in paragraph.runs:
+        run.font.name = font_name
+        run.font.size = Pt(font_size)
+        run.font.bold = bold
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+
+
+def _set_cell_margins(cell, top: int = 0, bottom: int = 0, left: int = 0, right: int = 0):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = OxmlElement("w:tcMar")
+    for edge, size in (("top", top), ("bottom", bottom), ("left", left), ("right", right)):
+        edge_el = OxmlElement(f"w:{edge}")
+        edge_el.set(qn("w:w"), str(size))
+        edge_el.set(qn("w:type"), "dxa")
+        tc_mar.append(edge_el)
+    for child in list(tc_pr):
+        if child.tag.endswith("tcMar"):
+            tc_pr.remove(child)
+    tc_pr.append(tc_mar)
+
+
 def _try_add_cover_logo(doc, spec: ThesisFormatSpec):
     cv = spec.cover
     if not cv.logo_path or cv.logo_width <= 0:
@@ -196,8 +232,17 @@ def _try_add_cover_logo(doc, spec: ThesisFormatSpec):
     para = doc.add_paragraph()
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = para.add_run()
+    para.paragraph_format.space_before = Pt(6)
+    para.paragraph_format.space_after = Pt(12)
     try:
-        run.add_picture(str(logo_path), width=Cm(cv.logo_width))
+        _add_top_bottom_wrapped_picture(
+            run,
+            str(logo_path),
+            width=Cm(cv.logo_width),
+            height=Cm(cv.logo_height) if cv.logo_height > 0 else None,
+            alignment=WD_ALIGN_PARAGRAPH.CENTER,
+            image_name=logo_path.name,
+        )
     except Exception:
         return
 
@@ -256,8 +301,8 @@ def _convert_inline_shape_to_top_bottom_wrap(shape, alignment: str = "center"):
     drawing.append(anchor)
 
 
-def _add_top_bottom_wrapped_picture(run, image_source, width, alignment, image_name: str = "Picture"):
-    shape = run.add_picture(image_source, width=width)
+def _add_top_bottom_wrapped_picture(run, image_source, width, alignment, image_name: str = "Picture", height=None):
+    shape = run.add_picture(image_source, width=width, height=height)
     # 同一文档中可能会插入多张图片，这里复用 python-docx 分配的 docPr 信息，再改为浮动锚点。
     _convert_inline_shape_to_top_bottom_wrap(shape, alignment=_alignment_to_anchor(alignment))
     return shape
@@ -409,17 +454,63 @@ def _insert_toc_field(doc):
     return para
 
 
+def _add_cover_blank_line(doc, line_spacing: float | None = None):
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    para.paragraph_format.space_before = Pt(0)
+    para.paragraph_format.space_after = Pt(0)
+    para.paragraph_format.first_line_indent = Pt(0)
+    para.paragraph_format.left_indent = Pt(0)
+    para.paragraph_format.right_indent = Pt(0)
+    if line_spacing is not None:
+        para.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+        para.paragraph_format.line_spacing = line_spacing
+    run = para.add_run("")
+    run.font.name = "仿宋_GB2312"
+    run.font.size = Pt(16)
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), "仿宋_GB2312")
+    return para
+
+
+def _add_cover_gap_line(doc):
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    para.paragraph_format.space_before = Pt(0)
+    para.paragraph_format.space_after = Pt(0)
+    run = para.add_run("")
+    run.font.name = "仿宋_GB2312"
+    run.font.size = Pt(16)
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), "仿宋_GB2312")
+    return para
+
+
+def _add_cover_date_gap_line(doc):
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    para.paragraph_format.space_before = Pt(0)
+    para.paragraph_format.space_after = Pt(0)
+    run = para.add_run("")
+    run.font.name = "仿宋_GB2312"
+    run.font.size = Pt(16)
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), "仿宋_GB2312")
+    return para
+
+
 def _generate_cover_page(doc, spec: ThesisFormatSpec, metadata: dict[str, str] | None = None):
     """生成论文封面页模板，尽量贴近学校模板版式。"""
     from docx.enum.table import WD_TABLE_ALIGNMENT
     cv = spec.cover
     metadata = metadata or {}
 
+    _add_cover_blank_line(doc, line_spacing=1.25)
+
     # 学校名称
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(48)
-    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    p.paragraph_format.line_spacing = 1.25
     run = p.add_run(cv.university_name)
     run.font.name = cv.university_font
     run.font.size = Pt(cv.university_size)
@@ -430,94 +521,115 @@ def _generate_cover_page(doc, spec: ThesisFormatSpec, metadata: dict[str, str] |
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(24)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    p.paragraph_format.line_spacing = 1.25
     run = p.add_run(cv.thesis_type_label)
     run.font.name = cv.thesis_type_font
     run.font.size = Pt(cv.thesis_type_size)
     run.font.bold = True
     run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.thesis_type_font)
 
+    _add_cover_blank_line(doc, line_spacing=1.25)
     _try_add_cover_logo(doc, spec)
 
     # 论文题目区域
     title_table = doc.add_table(rows=1, cols=2)
     title_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     title_table.autofit = False
-    title_table.columns[0].width = Cm(3.5)
-    title_table.columns[1].width = Cm(13.5)
+    title_table.columns[0].width = Cm(cv.title_table_left_width or 3.44)
+    title_table.columns[1].width = Cm(cv.title_table_right_width or 13.54)
     title_left = title_table.cell(0, 0)
     title_right = title_table.cell(0, 1)
+    row = title_table.rows[0]
+    if cv.title_table_row_height > 0:
+        row.height = Cm(cv.title_table_row_height)
+        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+    title_left.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    title_right.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
 
     for cell in (title_left, title_right):
         _set_cell_borders(cell, top="dashed", bottom="dashed", left="dashed", right="dashed", color="BFBFBF")
+        _set_cell_margins(cell, top=0, bottom=0, left=0, right=0)
 
     left_para = title_left.paragraphs[0]
     left_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    left_para.paragraph_format.space_before = Pt(6)
-    left_para.paragraph_format.space_after = Pt(6)
-    left_run = left_para.add_run("题  目：")
+    left_para.paragraph_format.space_before = Pt(0)
+    left_para.paragraph_format.space_after = Pt(0)
+    left_para.paragraph_format.line_spacing = Pt(23)
+    left_run = left_para.add_run("题目：")
     left_run.font.name = cv.title_font
     left_run.font.size = Pt(cv.title_size)
-    left_run.font.bold = True
+    left_run.font.bold = False
+    left_run.font.underline = False
     left_run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.title_font)
 
     p = title_right.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p.paragraph_format.space_before = Pt(6)
-    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing = Pt(23)
+    p.paragraph_format.left_indent = Pt(0)
+    p.paragraph_format.right_indent = Pt(0)
+    p.paragraph_format.first_line_indent = Pt(0)
     title_text = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES['题目']) or '（论文题目）'
     run = p.add_run(title_text)
     run.font.name = cv.title_font
     run.font.size = Pt(cv.title_size)
-    run.font.bold = True
+    run.font.bold = False
+    run.font.underline = True
     run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.title_font)
 
-    doc.add_paragraph()
+    _add_cover_gap_line(doc)
 
     # 字段表格
     table = doc.add_table(rows=len(cv.fields), cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
-    table.columns[0].width = Cm(3.2)
-    table.columns[1].width = Cm(9.4)
+    table.columns[0].width = Cm(cv.info_table_left_width or 3.2)
+    table.columns[1].width = Cm(cv.info_table_right_width or 9.4)
 
     for i, (label, placeholder) in enumerate(cv.fields):
         row = table.rows[i]
+        if cv.info_table_row_height > 0:
+            row.height = Cm(cv.info_table_row_height)
+            row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
         left_cell = row.cells[0]
         right_cell = row.cells[1]
+        left_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        right_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
         field_value = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get(label, (label,))) or placeholder
-        _set_cell_borders(left_cell, color="BFBFBF")
-        _set_cell_borders(right_cell, left="none", color="000000")
+        _set_cell_borders(left_cell, top="dashed", bottom="dashed", left="dashed", right="dashed", color="BFBFBF")
+        _set_cell_borders(
+            right_cell,
+            top="single",
+            bottom="single",
+            left="none",
+            right="single",
+            color="000000",
+        )
 
         # 左列：标签
         p_left = left_cell.paragraphs[0]
         p_left.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_left.paragraph_format.space_before = Pt(4)
-        p_left.paragraph_format.space_after = Pt(4)
         run_label = p_left.add_run(label)
-        run_label.font.name = cv.field_label_font
-        run_label.font.size = Pt(cv.field_label_size)
-        run_label._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
+        _set_table_font(p_left, "仿宋_GB2312", 16)
 
         # 右列：内容
         p_right = right_cell.paragraphs[0]
         p_right.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_right.paragraph_format.space_before = Pt(4)
-        p_right.paragraph_format.space_after = Pt(4)
         run_underline = p_right.add_run(field_value)
-        run_underline.font.name = cv.field_label_font
-        run_underline.font.size = Pt(cv.field_label_size)
-        run_underline._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
+        _set_table_font(p_right, "仿宋_GB2312", 16)
 
-    doc.add_paragraph()
+    _add_cover_date_gap_line(doc)
     date_para = doc.add_paragraph()
     date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    date_para.paragraph_format.space_before = Pt(18)
+    date_para.paragraph_format.space_before = Pt(0)
     date_text = _lookup_cover_metadata(metadata, *_COVER_FIELD_ALIASES.get("完成日期", ("日期",))) or "____年__月__日"
     date_run = date_para.add_run(date_text)
-    date_run.font.name = cv.field_label_font
-    date_run.font.size = Pt(cv.field_label_size)
-    date_run._element.rPr.rFonts.set(qn('w:eastAsia'), cv.field_label_font)
+    date_run.font.name = "仿宋_GB2312"
+    date_run.font.size = Pt(16)
+    date_run._element.rPr.rFonts.set(qn('w:eastAsia'), "仿宋_GB2312")
 
 
 def _generate_declaration_page(doc, spec: ThesisFormatSpec, metadata: dict[str, str] | None = None):
@@ -701,7 +813,7 @@ def _add_page_number_to_footer(section, spec: ThesisFormatSpec):
     run3._r.append(fldChar_end)
 
 
-def _add_header(section, spec: ThesisFormatSpec):
+def _add_header(section, spec: ThesisFormatSpec, add_bottom_border: bool = True):
     """向页眉添加学校名称文本（右对齐，宋体 10.5pt），并添加底部下划线边框。"""
     ft = spec.fonts
     fs = spec.font_sizes
@@ -729,14 +841,18 @@ def _add_header(section, spec: ThesisFormatSpec):
 
     # 添加页眉底部边框
     pPr = para._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '6')
-    bottom.set(qn('w:space'), '0')
-    bottom.set(qn('w:color'), '000000')
-    pBdr.append(bottom)
-    pPr.append(pBdr)
+    for child in list(pPr):
+        if child.tag.endswith('pBdr'):
+            pPr.remove(child)
+    if add_bottom_border:
+        pBdr = OxmlElement('w:pBdr')
+        bottom = OxmlElement('w:bottom')
+        bottom.set(qn('w:val'), 'single')
+        bottom.set(qn('w:sz'), '6')
+        bottom.set(qn('w:space'), '0')
+        bottom.set(qn('w:color'), '000000')
+        pBdr.append(bottom)
+        pPr.append(pBdr)
 
 
 def parse_image_meta(alt_text: str):
@@ -1080,7 +1196,7 @@ def clean_heading(text):
     return text.strip()
 
 def convert_markdown_to_word(markdown_path: str, output_path: str,
-                             school_id: str = "yzu", thesis_type: str = "thesis"):
+                             school_id: str = "sdfmu", thesis_type: str = "thesis"):
     """将 Markdown 转换为 Word 文档，使用标准 Heading 样式"""
 
     # 加载学校格式规格
@@ -1096,13 +1212,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
     doc = Document()
 
     # 设置页面（从 spec 读取）
-    pg = spec.page_layout
-    for section in doc.sections:
-        section.top_margin = Cm(pg.top_margin)
-        section.bottom_margin = Cm(pg.bottom_margin)
-        section.left_margin = Cm(pg.left_margin)
-        section.right_margin = Cm(pg.right_margin)
-        section.gutter = Cm(pg.gutter)
+    _apply_page_layout_to_sections(doc, spec)
 
     # 设置标准样式
     setup_styles(doc, spec)
@@ -1700,6 +1810,7 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
         i += 1
 
     # ── 后处理：设置页眉 + 页码 ──
+    _apply_page_layout_to_sections(doc, spec)
     sections = doc.sections
     skip_header_sections = int(cover_generated) + int(declaration_generated)
     body_start_index = None
@@ -1710,7 +1821,8 @@ def convert_markdown_to_word(markdown_path: str, output_path: str,
         if idx < skip_header_sections:
             _clear_section_header_footer(sec)
         else:
-            _add_header(sec, spec)
+            add_bottom_border = not (idx == skip_header_sections and body_start_index is not None)
+            _add_header(sec, spec, add_bottom_border=add_bottom_border)
 
     if body_start_index is not None and body_start_index < len(sections):
         for idx in range(skip_header_sections, body_start_index):

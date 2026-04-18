@@ -26,6 +26,6 @@ def get_convert_module():
 
 
 def convert_markdown_to_word(markdown_path: Path, output_path: Path,
-                            school_id: str = "yzu", thesis_type: str = "thesis") -> None:
+                            school_id: str = "sdfmu", thesis_type: str = "thesis") -> None:
     module = get_convert_module()
     module.convert_markdown_to_word(str(markdown_path), str(output_path), school_id, thesis_type)

@@ -17,7 +17,7 @@ class GenerationResult:
 
 class DocxGenerator:
     def generate(self, content: str, markdown_path: Path, output_path: Path,
-                 school_id: str = "yzu", thesis_type: str = "thesis") -> GenerationResult:
+                 school_id: str = "sdfmu", thesis_type: str = "thesis") -> GenerationResult:
         processed_content = rewrite_asset_urls_to_local_paths(content)
         markdown_path.write_text(processed_content, encoding="utf-8")
         document = parse_markdown(content)

@@ -9,19 +9,20 @@ import {
   convertMarkdown,
   deleteImageAsset,
   exportProjectPackage,
-  formatWordDocument,
   importProjectPackage,
   renameImageAsset,
-  reviewWordDocument,
   uploadImageAsset,
   type ProjectAssetItem,
-  type SchoolId,
-  type ThesisType,
 } from "@/api/documents";
+import ExportChecklist from "@/components/editor/ExportChecklist.vue";
 import ExportPanel from "@/components/editor/ExportPanel.vue";
 import ProjectAssets from "@/components/editor/ProjectAssets.vue";
-import SchoolSelector from "@/components/editor/SchoolSelector.vue";
-import ReviewResultTable from "@/components/review/ReviewResultTable.vue";
+import {
+  ACTIVE_SCHOOL_ID,
+  ACTIVE_SCHOOL_LABEL,
+  ACTIVE_THESIS_LABEL,
+  ACTIVE_THESIS_TYPE,
+} from "@/constants/document";
 import { useDocumentStore } from "@/stores/document";
 import { extractMath, restoreMath } from "@/utils/markdown-math";
 
@@ -34,30 +35,18 @@ marked.setOptions({
 const documentStore = useDocumentStore();
 
 const convertLoading = ref(false);
-const reviewLoading = ref(false);
-const formatLoading = ref(false);
 const exportProjectLoading = ref(false);
 const importProjectLoading = ref(false);
 const imageLoading = ref(false);
 const renameAssetLoadingId = ref<string | null>(null);
 const deleteAssetLoadingId = ref<string | null>(null);
 const selectedAssetId = ref<string | null>(null);
-const selectedWordFile = ref<File | null>(null);
 const markdownEditorRef = ref<any>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const projectInputRef = ref<HTMLInputElement | null>(null);
 const projectFolderInputRef = ref<HTMLInputElement | null>(null);
 
 const markdownEmpty = computed(() => documentStore.markdown.trim().length === 0);
-const wordMissing = computed(() => !selectedWordFile.value);
-
-function updateSchoolId(value: SchoolId) {
-  documentStore.setSchoolId(value);
-}
-
-function updateThesisType(value: ThesisType) {
-  documentStore.setThesisType(value);
-}
 
 function updateProjectName(value: string) {
   documentStore.setProjectName(value.trim() ? value : "paper-project");
@@ -88,6 +77,26 @@ function downloadBlob(blob: Blob, fileName: string) {
 function getTextareaElement(): HTMLTextAreaElement | null {
   const root = markdownEditorRef.value?.$el as HTMLElement | undefined;
   return root?.querySelector("textarea") ?? null;
+}
+
+function sanitizeFilePart(value: string): string {
+  return value
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readCoverField(markdown: string, label: string): string {
+  const match = markdown.match(new RegExp(`^${label}[：:](.+)$`, "m"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function buildWordFilename(markdown: string): string {
+  const studentId = sanitizeFilePart(readCoverField(markdown, "学号"));
+  const studentName = sanitizeFilePart(readCoverField(markdown, "学生姓名"));
+  const title = sanitizeFilePart(readCoverField(markdown, "题目"));
+  const parts = [studentId, studentName, title].filter(Boolean);
+  return `${parts.length > 0 ? parts.join("_") : documentStore.projectName || "paper-project"}.docx`;
 }
 
 function insertSnippet(snippet: string) {
@@ -277,59 +286,15 @@ async function handleConvert() {
   try {
     const blob = await convertMarkdown({
       content: documentStore.markdown,
-      schoolId: documentStore.schoolId,
-      thesisType: documentStore.thesisType,
+      schoolId: ACTIVE_SCHOOL_ID,
+      thesisType: ACTIVE_THESIS_TYPE,
     });
-    downloadBlob(blob, `${documentStore.schoolId}_${documentStore.thesisType}_draft.docx`);
+    downloadBlob(blob, buildWordFilename(documentStore.markdown));
     Message.success("已导出。");
   } catch (error) {
     Message.error(readApiError(error));
   } finally {
     convertLoading.value = false;
-  }
-}
-
-async function handleReview() {
-  if (!selectedWordFile.value) {
-    Message.warning("请先选择 Word 文件。");
-    return;
-  }
-
-  reviewLoading.value = true;
-  try {
-    const review = await reviewWordDocument({
-      file: selectedWordFile.value,
-      schoolId: documentStore.schoolId,
-      thesisType: documentStore.thesisType,
-    });
-    documentStore.setReviewResult(review);
-    Message.success("已审查。");
-  } catch (error) {
-    Message.error(readApiError(error));
-  } finally {
-    reviewLoading.value = false;
-  }
-}
-
-async function handleFormat() {
-  if (!selectedWordFile.value) {
-    Message.warning("请先选择 Word 文件。");
-    return;
-  }
-
-  formatLoading.value = true;
-  try {
-    const blob = await formatWordDocument({
-      file: selectedWordFile.value,
-      schoolId: documentStore.schoolId,
-      thesisType: documentStore.thesisType,
-    });
-    downloadBlob(blob, `${documentStore.schoolId}_${documentStore.thesisType}_formatted_bundle.zip`);
-    Message.success("已格式化。");
-  } catch (error) {
-    Message.error(readApiError(error));
-  } finally {
-    formatLoading.value = false;
   }
 }
 
@@ -343,8 +308,8 @@ async function handleExportProject() {
   try {
     const blob = await exportProjectPackage({
       content: documentStore.markdown,
-      schoolId: documentStore.schoolId,
-      thesisType: documentStore.thesisType,
+      schoolId: ACTIVE_SCHOOL_ID,
+      thesisType: ACTIVE_THESIS_TYPE,
       projectName: documentStore.projectName,
     });
     downloadBlob(blob, `${documentStore.projectName || "paper-project"}.zip`);
@@ -354,11 +319,6 @@ async function handleExportProject() {
   } finally {
     exportProjectLoading.value = false;
   }
-}
-
-function handleWordChange(event: Event) {
-  const target = event.target as HTMLInputElement;
-  selectedWordFile.value = target.files?.[0] ?? null;
 }
 
 async function handleImageChange(event: Event) {
@@ -557,12 +517,8 @@ function handleAssetInsert(asset: ProjectAssetItem) {
           @update:model-value="updateProjectName"
         />
 
-        <SchoolSelector
-          :school-id="documentStore.schoolId"
-          :thesis-type="documentStore.thesisType"
-          @update:school-id="updateSchoolId"
-          @update:thesis-type="updateThesisType"
-        />
+        <a-tag color="arcoblue" bordered>{{ ACTIVE_SCHOOL_LABEL }}</a-tag>
+        <a-tag bordered>{{ ACTIVE_THESIS_LABEL }}</a-tag>
 
         <a-button size="small" :loading="importProjectLoading" @click="triggerProjectPicker">
           导入压缩包
@@ -582,22 +538,12 @@ function handleAssetInsert(asset: ProjectAssetItem) {
           @change="handleProjectFolderChange"
         />
 
-        <label class="file-chip" for="word-file-input">
-          <span>{{ selectedWordFile?.name ?? "选择 Word(.doc/.docx)" }}</span>
-        </label>
-        <input id="word-file-input" class="file-input" type="file" accept=".doc,.docx" @change="handleWordChange" />
-
         <ExportPanel
           :export-project-loading="exportProjectLoading"
           :convert-loading="convertLoading"
-          :review-loading="reviewLoading"
-          :format-loading="formatLoading"
           :markdown-disabled="markdownEmpty"
-          :word-disabled="wordMissing"
           @export-project="handleExportProject"
           @convert="handleConvert"
-          @review="handleReview"
-          @format="handleFormat"
         />
       </div>
     </div>
@@ -648,7 +594,11 @@ function handleAssetInsert(asset: ProjectAssetItem) {
         @select-asset="handleAssetSelect"
       />
 
-      <ReviewResultTable :review="documentStore.reviewResult" />
+      <ExportChecklist
+        :markdown="documentStore.markdown"
+        :asset-count="documentStore.assets.length"
+        @insert="insertSnippet"
+      />
     </div>
   </div>
 </template>
